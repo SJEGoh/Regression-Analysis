@@ -17,7 +17,7 @@ from datetime import datetime, date
 load_dotenv()
 
 # Data Loading
-client = RESTClient(os.getenv("POLYGON_API_KEY"))
+client = RESTClient(st.secrets["POLYGON_API_KEY"])
 def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "day"):
     aggs = client.get_aggs(
         ticker=ticker, 
