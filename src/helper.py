@@ -1,17 +1,13 @@
 from massive import RESTClient
 from dotenv import load_dotenv
-import os
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from statsmodels.regression.rolling import RollingOLS
 import statsmodels.api as sm
-import seaborn as sns
-import matplotlib.pyplot as plt
 from datetime import date
 import streamlit as st
 import yfinance as yf
-from investiny import search_assets, historical_data
 from datetime import datetime, date
 
 load_dotenv()
@@ -24,7 +20,8 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
         multiplier=1, 
         timespan=timespan, 
         from_=frm,
-        to = to
+        to = to,
+        adjusted = True
     )
 
     df = pd.DataFrame(aggs)[["close", "timestamp"]]
@@ -182,8 +179,8 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
 
     fig4 = go.Figure()
     fig4.add_trace(go.Bar(
-    x=df.index,
-    y=df['residuals'],
+    x=df.iloc[-63:].index,
+    y=df.iloc[-63:]['residuals'],
     marker_opacity = 1.0,
     name='Residuals',
     hovertemplate='<b>Date</b>: %{x}<br><b>Error</b>: %{y:.4f}<extra></extra>'
@@ -213,72 +210,71 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
     fig5 = get_regression_plot(ticker_price, bench_price, df, labels)
     return fig1, fig2, fig3, fig4, fig5
 
-def get_heatmap(df):
-    # 1. Prepare data
-    temp = df.copy()[["Year", "Month", "ticker_pct"]]
+def get_heatmap(df, mode="Differences"):
+    temp = df.copy()[["Date", "Working"]]
+    temp["Month"] = temp["Date"].dt.month
+    temp["Year"] = temp["Date"].dt.year
+    
+    is_diff = "diff" in str(mode).lower() 
+    
+    if is_diff:
+        monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
+            lambda x: (1 + x).prod() - 1
+        ).reset_index()
+        val_fmt = ".1%"
+        color_scale = 'RdYlGn'
+        z_mid = 0
+    else:
+        monthly_df = temp.groupby(["Year", "Month"])["Working"].last().reset_index()
+        val_fmt = ".1f"
+        color_scale = 'Viridis' 
+        z_mid = None
 
-    # 2. Aggregate Daily -> Monthly Returns
-    # Group by Year/Month and compound the returns: (1+r)*(1+r)... - 1
-    monthly_df = temp.groupby(['Year', 'Month'])['ticker_pct'].apply(
-        lambda x: (1 + x).prod() - 1
-    ).reset_index()
-
-    # 3. Pivot: Year (Rows) x Month (Columns)
-    heatmap_data = monthly_df.pivot(index='Year', columns='Month', values='ticker_pct')
-
-    # 4. Rename columns (1 -> Jan, etc.)
+    heatmap_data = monthly_df.pivot(index='Year', columns='Month', values='Working')
     month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     month_map = dict(zip(range(1, 13), month_names))
     heatmap_data.rename(columns=month_map, inplace=True)
-    
-    # Ensure columns are ordered Jan-Dec (Pivot sometimes messes up order)
     heatmap_data = heatmap_data.reindex(columns=month_names)
 
-    # 5. Calculate Stats
-    # Hit Rate: % of months that were positive
-    hit_rate = (heatmap_data > 0).sum() / heatmap_data.count()
-    hit_rate_row = hit_rate.to_frame(name='Hit Rate').T
-
-    # Average: Mean monthly return
-    mean_row = heatmap_data.mean().to_frame(name='Average').T
-
-    # 6. Stack (Hit Rate at top, then Average, then Years)
-    # We sort years descending so recent years are near the top (under stats)
     heatmap_data.sort_index(ascending=False, inplace=True)
-    final_df = pd.concat([hit_rate_row, mean_row, heatmap_data])
     
-    # 7. Create Text Matrix for Annotations (e.g., "5.2%")
-    # We map NaN values to empty strings so they don't show as "nan"
-    text_template = final_df.applymap(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
+    if is_diff:
+        hit_rate = (heatmap_data > 0).sum() / heatmap_data.count()
+        hit_rate_row = hit_rate.to_frame(name='Hit Rate').T
+        mean_row = heatmap_data.mean().to_frame(name='Average').T
+        final_df = pd.concat([hit_rate_row, mean_row, heatmap_data])
+    else:
+        final_df = heatmap_data
 
-    # 8. Plotly Heatmap
+    final_df.index = final_df.index.astype(str) 
+    text_template = final_df.map(lambda x: f"{x:{val_fmt}}" if pd.notnull(x) else "")
+
     fig = go.Figure(data=go.Heatmap(
         z=final_df.values,
         x=final_df.columns,
         y=final_df.index,
-        colorscale='RdYlGn',
-        zmid=0,             # Center the color scale at 0%
-        text=text_template, # Use our pre-formatted text
+        colorscale=color_scale,
+        zmid=z_mid,
+        text=text_template,
         texttemplate="%{text}",
         textfont={"size": 10},
-        xgap=1,             # Add white lines between cells
+        xgap=1,
         ygap=1
     ))
 
-    # 9. Layout Updates
     fig.update_layout(
-        title='Monthly Seasonality Heatmap',
-        yaxis_autorange='reversed', # Put Hit Rate/Average at the top
-        height=800,                 # Make it tall enough
-        xaxis_title="Month",
-        yaxis_title="Year / Metric",
+        title=f'Monthly Seasonality Heatmap ({mode})',
+        xaxis_nticks=12,
+        yaxis=dict(type='category', tickmode='linear', autorange="reversed"),
+        height=800,
+        margin=dict(t=80, b=20, l=100, r=20),
         template="plotly_white"
     )
 
     return fig
 
-# 1. Create the Plot for Regression (Scatter)
+
 def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
     fig = go.Figure()
     
@@ -369,15 +365,146 @@ def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
         font=dict(color="black"), # Ensure text isn't white-on-white
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        # LOCK THE VIEW
         xaxis=dict(range=[x_min - pad_x, x_max + pad_x], constrain='domain'), 
         yaxis=dict(range=[y_min - pad_y, y_max + pad_y], constrain='domain')
     )
 
     return fig
 
+def get_annual_series(ticker_price):
+    temp = ticker_price.copy()
+    temp["Year"] = temp["Date"].dt.year
+    print(temp[temp["Year"] == 2026]["Working"].head(20))
+
+    fig = go.Figure()
+    for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+        curr = temp[temp["Year"] == y]
+        curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+        fig.add_trace(go.Scatter(
+            x = curr["Date"],
+            y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+            mode = "lines",
+            name = f"{y}"
+        ))
+    
+    curr = temp[temp["Year"] == date.today().year]
+    fig.add_trace(go.Scatter(
+        x = curr["Date"],
+        y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+        mode = "lines",
+        name = date.today().year
+    ))
+    fig.update_layout(
+        title='Monthly Returns Overlay',
+        xaxis_title='Date',
+        # ADD THIS BLOCK:
+        yaxis=dict(
+            title='Cumulative Return',
+            tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+        ),
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    
+    return fig
+
+def get_monthly_series(ticker_price):
+    temp = ticker_price.copy()
+    temp["Year"] = temp["Date"].dt.year
+    temp["Month"] = temp["Date"].dt.month
+    temp = temp[temp["Month"] == date.today().month]
+
+    fig = go.Figure()
+    for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+        curr = temp[temp["Year"] == y]
+        curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+        fig.add_trace(go.Scatter(
+            x = curr["Date"],
+            y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+            mode = "lines",
+            name = f"{y}"
+        ))
+    
+    curr = temp[temp["Year"] == date.today().year]
+    fig.add_trace(go.Scatter(
+        x = curr["Date"],
+        y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+        mode = "lines",
+        name = date.today().year
+    ))
+    fig.update_layout(
+        title='Annual Returns Overlay',
+        xaxis_title='Date',
+        # ADD THIS BLOCK:
+        yaxis=dict(
+            title='Cumulative Return',
+            tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+        ),
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    
+    return fig
+
+
+
+# Experiments
+def get_types():
+    details = client.get_ticker_details("2800")
+    print(f"Ticker: {details.ticker}, Name: {details.name}, Market: {details.market}")
+
+def find_hsi_etf():
+    # This searches the whole database for 'Hang Seng'
+    search_results = client.list_tickers(
+        market="stocks", 
+        search="Hang Seng", 
+        active=True
+    )
+    
+    for ticker in search_results:
+        print(f"Ticker: {ticker.ticker} | Name: {ticker.name} | Locale: {ticker.locale}")
+
+import pandas as pd
+import requests
+import io
+import pandas_datareader.data as web
+def get_stooq_macro(ticker):
+    """
+    Argentina 3Y: '3AR.B'
+    SPY: 'SPY.US'
+    """
+    try:
+        # data_source='stooq' is the key here
+        df = web.DataReader(ticker, 'stooq')
+        
+        # Stooq returns data in reverse chronological order; sort it for analysis
+        df = df.sort_index()
+        
+        if df.empty:
+            print(f"Warning: No data returned for {ticker}")
+            return None
+            
+        return df
+    except Exception as e:
+        print(f"Error fetching {ticker} via pandas_datareader: {e}")
+        return None
+
+
+
 def main():
-    return get_polygon_data("AAPL")
+    arg_3y = get_stooq_macro('5YCAP.B')
+    spy = get_stooq_macro('SPY.US')
+
+    print(arg_3y)
+
 
 if __name__ == "__main__":
     print(main())
