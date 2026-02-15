@@ -131,9 +131,12 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
         title='Rolling Beta',
         yaxis_title='Beta Value',
         xaxis_title='Date',
-        template='plotly_white', # Clean white background like matplotlib
         height=500, # Matches figsize=(10, 5) approx
-        hovermode="x unified" # Shows a vertical line across the chart on hover
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20)
     )
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
@@ -146,9 +149,12 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
         title='Rolling R-squared',
         yaxis_title='R-squared',
         xaxis_title='Date',
-        template='plotly_white', # Clean white background like matplotlib
         height=500, # Matches figsize=(10, 5) approx
-        hovermode="x unified" # Shows a vertical line across the chart on hover
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20)
     )
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
@@ -162,9 +168,12 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
         title='Rolling p-value',
         yaxis_title='p-value',
         xaxis_title='Date',
-        template='plotly_white', # Clean white background like matplotlib
         height=500, # Matches figsize=(10, 5) approx
-        hovermode="x unified" # Shows a vertical line across the chart on hover
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20)
     )
     df["residuals"] = (
         ticker_price["Working"].values - 
@@ -175,6 +184,7 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
     fig4.add_trace(go.Bar(
     x=df.index,
     y=df['residuals'],
+    marker_opacity = 1.0,
     name='Residuals',
     hovertemplate='<b>Date</b>: %{x}<br><b>Error</b>: %{y:.4f}<extra></extra>'
     ))
@@ -190,12 +200,15 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
 
     # 4. Update Layout
     fig4.update_layout(
-        title='Residuals over Time (Model Error)',
+        title='Residuals over Time',
         xaxis_title='Date',
         yaxis_title='Residual Value',
-        template='plotly_white',
-        height=500,
-        bargap=0.1 # Adds a small gap between bars for readability
+        bargap = 0, # Adds a small gap between bars for readability
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20)
     )
     fig5 = get_regression_plot(ticker_price, bench_price, df, labels)
     return fig1, fig2, fig3, fig4, fig5
