@@ -363,8 +363,11 @@ def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
         title="Regression Analysis",
         xaxis_title="Benchmark",
         yaxis_title="Ticker",
-        template="plotly_white",
-        height=600,
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         # LOCK THE VIEW
         xaxis=dict(range=[x_min - pad_x, x_max + pad_x], constrain='domain'), 
