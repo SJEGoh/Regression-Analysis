@@ -338,7 +338,7 @@ def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
                         y=inf_y, 
                         mode='lines', 
                         name=f"{name} (β={m_sub:.2f})",
-                        line=dict(color=color, width=3)
+                        line=dict(color=color, width=3, dash = "dash")
                     ))
     # 5. Plot Red Dot
     latest = df.iloc[-1]
