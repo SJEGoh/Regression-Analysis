@@ -1,9 +1,11 @@
 import streamlit as st
+from helper import get_data, get_figs
+import pandas as pd
 
 
 
 def main():
-
+    st.set_page_config(page_title="Cross Sector Asset Screener", layout="wide")
     c1, c2, c3 = st.columns([0.2, 0.2, 0.6])
 
     with c1:
@@ -14,6 +16,12 @@ def main():
         asset_ticker_x = st.text_input(
             "Enter First Ticker"
         )
+        lvd = st.radio(
+            "Levels or Difference",
+            ["Levels", "Difference"],
+            horizontal = True
+        )
+    data_x = get_data(asset_ticker_x, asset_type_x)
     with c2:
         asset_type_y = st.selectbox(
             "Select Second Asset Class",
@@ -22,6 +30,8 @@ def main():
         asset_ticker_y = st.text_input(
             "Enter Second Ticker"
         )
+    data_y = get_data(asset_ticker_y, asset_type_y)
+
     with c3:
         if "input_rows" not in st.session_state:
             st.session_state.input_rows = 1  # Start with 1 row
@@ -55,8 +65,35 @@ def main():
             st.rerun() # Force reload to show the new empty row
 
         print(st.session_state.event_data)
+    
+    if data_x.empty or data_y.empty:
+        st.stop()
+    if lvd == "Levels":
+        data_x["Working"] = data_x["Close"]
+        data_y["Working"] = data_y["Close"]
+    elif lvd == "Difference":
+        data_x["Working"] = data_x["pct_change"]
+        data_y["Working"] = data_y["pct_change"]  
+    
+
+    f1, f2, f3, f4, f5 = get_figs(data_x, data_y, st.session_state.event_data)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(f5, theme = None, width = "stretch")
+    with c2: 
+        st.plotly_chart(f4, theme = None, width = "stretch")
+    
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.plotly_chart(f1, theme = None, width = "stretch")
+    with c2:
+        st.plotly_chart(f2, theme = None, width = "stretch")
+    with c3:
+        st.plotly_chart(f3, theme = None, width = "stretch")
 
     # query logic here
+
 
 
 if __name__ == "__main__":
