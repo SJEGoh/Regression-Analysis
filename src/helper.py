@@ -38,50 +38,6 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
     df = df[["Date", "close"]]
     df.columns = ["Date", "Close"]
     return df
-
-def get_investpy_data(ticker, frm="2015-01-01", to=date.today(), timespan="day"):
-    if isinstance(frm, str):
-        start_dt = datetime.strptime(frm, "%Y-%m-%d").strftime("%m/%d/%Y")
-    else:
-        start_dt = frm.strftime("%m/%d/%Y")
-
-    if isinstance(to, str):
-        end_dt = datetime.strptime(to, "%Y-%m-%d").strftime("%m/%d/%Y")
-    else:
-        end_dt = to.strftime("%m/%d/%Y")
-    try:
-        results = search_assets(query=ticker, limit=1, type="Bond")
-        if results:
-            investing_id = results[0]["id"]
-        else:
-            print(f"❌ Bond '{ticker}' not found.")
-            return pd.DataFrame()
-    except Exception as e:
-        print(f"❌ Search Error: {e}")
-        return pd.DataFrame()
-
-    try:
-        df = historical_data(
-            investing_id=investing_id,
-            from_date=start_dt,
-            to_date=end_dt
-        )
-    except Exception as e:
-        print(f"❌ Fetch Error: {e}")
-        return pd.DataFrame()
-    
-    df.rename(columns={
-        "date": "Date", 
-        "open": "Open", 
-        "high": "High", 
-        "low": "Low", 
-        "close": "Close"
-    }, inplace=True)
-    
-    df["Date"] = pd.to_datetime(df["Date"])
-    
-    
-    return df[["Date", "Close"]]
     
 def get_yfinance_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "day"):
     aggs = yf.download(ticker, start = frm, end = to)
@@ -94,8 +50,6 @@ def get_data(ticker, asset_type, frm = "2015-01-01", to = date.today()):
         return pd.DataFrame()
     if asset_type == "Equity":
         df = get_polygon_data(ticker, frm, to)
-    if asset_type == "Bond":
-        df = get_investpy_data(ticker, frm, to)
     if asset_type == "FX":
         df = get_yfinance_data(ticker, frm, to)
     
