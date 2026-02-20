@@ -9,6 +9,15 @@ from datetime import date
 import streamlit as st
 import yfinance as yf
 from datetime import datetime, date
+import pandas_datareader.data as web
+
+
+# Index mapping
+INDEXES = {
+    "SPX": "SPY",
+    "HSI": "KTEC",
+    "KOSPI": "EWY",
+}
 
 load_dotenv()
 
@@ -371,45 +380,79 @@ def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
 
     return fig
 
-def get_annual_series(ticker_price):
+def get_annual_series(ticker_price, mode = "Difference"):
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
-    print(temp[temp["Year"] == 2026]["Working"].head(20))
 
     fig = go.Figure()
-    for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
-        curr = temp[temp["Year"] == y]
-        curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+    if mode == "Difference":
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+            curr = temp[temp["Year"] == y]
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            fig.add_trace(go.Scatter(
+                x = curr["Date"],
+                y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+                mode = "lines",
+                name = f"{y}"
+            ))
+        
+        curr = temp[temp["Year"] == date.today().year]
         fig.add_trace(go.Scatter(
             x = curr["Date"],
             y = curr["Close"]/curr.iloc[0]["Close"] - 1,
             mode = "lines",
-            name = f"{y}"
+            name = date.today().year
         ))
-    
-    curr = temp[temp["Year"] == date.today().year]
-    fig.add_trace(go.Scatter(
-        x = curr["Date"],
-        y = curr["Close"]/curr.iloc[0]["Close"] - 1,
-        mode = "lines",
-        name = date.today().year
-    ))
-    fig.update_layout(
-        title='Monthly Returns Overlay',
-        xaxis_title='Date',
-        # ADD THIS BLOCK:
-        yaxis=dict(
-            title='Cumulative Return',
-            tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
-        ),
-        template="plotly_white",  # Explicitly white
-        paper_bgcolor="white",    # Force the outer margin to white
-        plot_bgcolor="white",     # Force the plotting area to white
-        font=dict(color="black"), # Ensure text isn't white-on-white
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    
+        fig.update_layout(
+            title='Annual Returns Overlay',
+            xaxis_title='Date',
+            # ADD THIS BLOCK:
+            yaxis=dict(
+                title='Cumulative Return',
+                tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+            ),
+            template="plotly_white",  # Explicitly white
+            paper_bgcolor="white",    # Force the outer margin to white
+            plot_bgcolor="white",     # Force the plotting area to white
+            font=dict(color="black"), # Ensure text isn't white-on-white
+            margin=dict(l=20, r=20, t=40, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+    else:
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+            curr = temp[temp["Year"] == y]
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            fig.add_trace(go.Scatter(
+                x = curr["Date"],
+                y = curr["Close"],
+                mode = "lines",
+                name = f"{y}"
+            ))
+        
+        curr = temp[temp["Year"] == date.today().year]
+        fig.add_trace(go.Scatter(
+            x = curr["Date"],
+            y = curr["Close"],
+            mode = "lines",
+            name = date.today().year
+        ))
+        fig.update_layout(
+            title='Annual Price Overlay',
+            xaxis_title='Date',
+            # ADD THIS BLOCK:
+            yaxis=dict(
+                title='Price',
+                tickformat='.2' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+            ),
+            template="plotly_white",  # Explicitly white
+            paper_bgcolor="white",    # Force the outer margin to white
+            plot_bgcolor="white",     # Force the plotting area to white
+            font=dict(color="black"), # Ensure text isn't white-on-white
+            margin=dict(l=20, r=20, t=40, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        
     return fig
 
 def get_monthly_series(ticker_price):
@@ -472,10 +515,6 @@ def find_hsi_etf():
     for ticker in search_results:
         print(f"Ticker: {ticker.ticker} | Name: {ticker.name} | Locale: {ticker.locale}")
 
-import pandas as pd
-import requests
-import io
-import pandas_datareader.data as web
 def get_stooq_macro(ticker):
     """
     Argentina 3Y: '3AR.B'
@@ -497,7 +536,153 @@ def get_stooq_macro(ticker):
         print(f"Error fetching {ticker} via pandas_datareader: {e}")
         return None
 
+# single asset page
+def multiple_heatmap(df, event_data):
+    heatmap_rows = []
+    
+    # Identify the max 'd' across all events to keep the X-axis symmetrical
+    max_d = int(max([val[1] for val in event_data.values()]))
+    full_rel_days = list(range(-max_d, max_d + 1))
 
+    for event_name, (target_date, d) in event_data.items():
+        d = int(d)
+        target_dt = pd.to_datetime(target_date)
+        
+        # Find index of T=0
+        idx_matches = df.index[df['Date'] == target_dt]
+        if len(idx_matches) > 0:
+            idx = idx_matches[0]
+        else:
+            # Fallback to nearest trading day if target_dt is a weekend/holiday
+            idx = (df['Date'] - target_dt).abs().idxmin()
+        
+        # Define the theoretical bounds
+        # Note: start_idx and end_idx might go out of current df bounds
+        start_idx = idx - d
+        end_idx = idx + d
+        
+        # Create a local DataFrame for this event's window
+        # We handle out-of-bounds indices by allowing them to be NaN
+        window_indices = range(start_idx, end_idx + 1)
+        rel_days = range(-d, d + 1)
+        
+        base_price = df.loc[idx, 'Working']
+        
+        for r_day, g_idx in zip(rel_days, window_indices):
+            ret = np.nan
+            if 0 <= g_idx < len(df):
+                ret = (df.loc[g_idx, 'Working'] / base_price - 1)
+            
+            heatmap_rows.append({
+                'Event': event_name,
+                'Rel_Day': r_day,
+                'Return': ret
+            })
+
+    plot_df = pd.DataFrame(heatmap_rows)
+    # Pivot will now naturally include NaNs for indices out of range
+    pivot_df = plot_df.pivot(index="Event", columns="Rel_Day", values="Return")
+    
+    # Ensure all columns from -max_d to max_d exist, even if all NaN for an event
+    pivot_df = pivot_df.reindex(columns=full_rel_days)
+
+    # Construct the Figure
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot_df.values,
+        x=pivot_df.columns,
+        y=pivot_df.index,
+        colorscale='RdYlGn',
+        reversescale=True,
+        zmid=0,
+        colorbar=dict(title="Cum. Return (%)"),
+        # 'connectgaps=False' ensures the 'future' days stay empty
+        connectgaps=False,
+        hovertemplate="Event: %{y}<br>Day: T%{x}<br>Return: %{z:.2%}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        title=f"Seasonality: T-{max_d} to T+{max_d} (Centered at T=0)",
+        xaxis=dict(title="Days from Event", tickmode='linear', dtick=1),
+        yaxis_title="Event",
+        template="plotly_white"
+    )
+
+    # Static vertical line at the center (T=0)
+    fig.add_vline(x=0, line_dash="dash", line_color="black", line_width=2)
+
+    return fig
+
+import plotly.graph_objects as go
+import numpy as np
+import pandas as pd
+
+def multiple_line_plot(df, event_data):
+    fig = go.Figure()
+    max_d = int(max([val[1] for val in event_data.values()]))
+    
+    # 1. Dictionary to store returns for each relative day across all events
+    # Key: Rel_Day, Value: List of returns from different events
+    all_returns = {d: [] for d in range(-max_d, max_d + 1)}
+
+    for event_name, (target_date, d) in event_data.items():
+        d = int(d)
+        target_dt = pd.to_datetime(target_date)
+        
+        idx_matches = df.index[df['Date'] == target_dt]
+        idx = idx_matches[0] if len(idx_matches) > 0 else (df['Date'] - target_dt).abs().idxmin()
+        
+        start_idx = idx - d
+        end_idx = idx + d
+        rel_days = np.arange(-d, d + 1)
+        window_indices = np.arange(start_idx, end_idx + 1)
+        
+        y_values = []
+        x_values = []
+        base_price = df.loc[idx, 'Working']
+        
+        for r_day, g_idx in zip(rel_days, window_indices):
+            if 0 <= g_idx < len(df):
+                ret = (df.loc[g_idx, 'Working'] / base_price - 1)
+                y_values.append(ret)
+                x_values.append(r_day)
+                # Collect for mean calculation
+                all_returns[r_day].append(ret)
+        
+        fig.add_trace(go.Scatter(
+            x=x_values, y=y_values,
+            mode='lines',
+            name=event_name,
+            opacity = 0.5,
+            line=dict(width=1.5), # Make individual lines thinner/subtle
+            hovertemplate=f"<b>{event_name}</b><br>Day: T%{{x}}<br>Return: %{{y:.2%}}<extra></extra>"
+        ))
+
+    # 2. Calculate the Mean Line
+    mean_x = sorted(all_returns.keys())
+    # Use np.nanmean if you pre-filled with NaNs, or just mean if you only appended actuals
+    mean_y = [np.mean(all_returns[day]) if all_returns[day] else np.nan for day in mean_x]
+
+    # 3. Add Mean Trace
+    fig.add_trace(go.Scatter(
+        x=mean_x, y=mean_y,
+        mode='lines',
+        name='AVERAGE MOVE',
+        line=dict(color='black', width=4), # Bold black line for the average
+        hovertemplate="<b>AVERAGE</b><br>Day: T%{x}<br>Return: %{y:.2%}<extra></extra>"
+    ))
+
+    # 4. Layout
+    fig.update_layout(
+        title=f"Seasonality Drift: T-{max_d} to T+{max_d} Trajectories",
+        xaxis=dict(title="Days from Event (T=0)", tickmode='linear', dtick=1, range=[-max_d, max_d]),
+        yaxis=dict(title="Cumulative Return (%)", tickformat=".2%", zeroline=True, zerolinewidth=2, zerolinecolor='gray'),
+        template="plotly_white",
+        hovermode="x unified"
+    )
+
+    fig.add_vline(x=0, line_dash="dash", line_color="red", line_width=2)
+    
+    return fig
 
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')

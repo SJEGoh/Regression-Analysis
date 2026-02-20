@@ -5,7 +5,7 @@ import pandas as pd
 
 
 def main():
-    st.set_page_config(page_title="Cross Sector Asset Screener", layout="wide")
+    st.set_page_config(page_title="Regression Analysis", layout="wide")
     with st.expander("Query Options", expanded = True):
         c1, c2, c3 = st.columns([0.2, 0.2, 0.6])
 
@@ -22,7 +22,7 @@ def main():
                 ["Levels", "Difference"],
                 horizontal = True
             )
-        data_x = get_data(asset_ticker_x, asset_type_x)
+        
         with c2:
             asset_type_y = st.selectbox(
                 "Select Second Asset Class",
@@ -31,7 +31,6 @@ def main():
             asset_ticker_y = st.text_input(
                 "Enter Second Ticker"
             )
-        data_y = get_data(asset_ticker_y, asset_type_y)
 
         with c3:
             if "input_rows" not in st.session_state:
@@ -66,7 +65,12 @@ def main():
                 st.rerun() # Force reload to show the new empty row
 
             print(st.session_state.event_data)
-        
+        try:
+            data_x = get_data(asset_ticker_x.upper(), asset_type_x)
+            data_y = get_data(asset_ticker_y.upper(), asset_type_y)
+        except:
+            st.write("Ticker not found. Please try again.")
+            st.stop()
         if data_x.empty or data_y.empty:
             st.stop()
         if lvd == "Levels":
@@ -95,7 +99,7 @@ def main():
 
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(get_annual_series(data_x), theme = None)
+        st.plotly_chart(get_annual_series(data_x, lvd), theme = None)
         st.plotly_chart(get_monthly_series(data_x), theme = None)
     with c2:
         st.plotly_chart(get_heatmap(data_x, lvd))
