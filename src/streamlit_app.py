@@ -1,6 +1,7 @@
 import streamlit as st
 from helper import get_data, get_figs, get_heatmap, get_annual_series, get_monthly_series
 import pandas as pd
+import datetime
 
 
 
@@ -22,7 +23,7 @@ def main():
                 ["Levels", "Difference"],
                 horizontal = True
             )
-        
+
         with c2:
             asset_type_y = st.selectbox(
                 "Select Second Asset Class",
@@ -31,41 +32,67 @@ def main():
             asset_ticker_y = st.text_input(
                 "Enter Second Ticker"
             )
+            rolling_period = st.number_input(
+                "Enter Rolling Period",
+                value = 30
+            )
+            period_shown = st.number_input(
+                "Enter Period to Graph",
+                value = 30
+            )
 
         with c3:
-            if "input_rows" not in st.session_state:
-                st.session_state.input_rows = 1  # Start with 1 row
+            if st.button("Clear All Events"):
+                # 1. FIX: Use the correct variable name
+                if "event_data" in st.session_state:
+                    del st.session_state.event_data
 
-            # 2. Initialize the Data Storage (The results)
+                for key in list(st.session_state.keys()):
+                    if any(key.startswith(prefix) for prefix in ["label", "start", "end"]):
+                        del st.session_state[key]
+                        
+                st.rerun()
             if "event_data" not in st.session_state:
-                st.session_state.event_data = {} 
+                st.session_state.event_data = {}
 
-            # 3. Render the Rows
-            # We loop based on the Counter, not the data
-            for i in range(st.session_state.input_rows):
-                with st.container(): # Group them visually
+            # 2. Define the update function
+            def update_event(index):
+                # Pull current values directly from the widget keys
+                label = st.session_state[f"label{index}"]
+                start = st.session_state[f"start{index}"]
+                end = st.session_state[f"end{index}"]
+                
+                if label.strip():
+                    st.session_state.event_data[index] = {
+                        "label": label,
+                        "data": (start, end)
+                    }
+                else:
+                    # Cleanup if label is deleted
+                    st.session_state.event_data.pop(index, None)
+
+            # 3. Determine how many rows to show
+            completed_indices = sorted(st.session_state.event_data.keys())
+            num_to_show = max(1, len(completed_indices) + 1)
+
+            # 4. Render the Rows
+            for i in range(num_to_show):
+                with st.container():
                     col1, col2, col3 = st.columns([2, 1, 1])
                     
-                    # Use key=... to make each widget unique
-                    label = col1.text_input(f"Label", key=f"label_{i}", value = None)
-                    start = col2.date_input(f"Start", key=f"start_{i}", value = None)
-                    end   = col3.date_input(f"End", key=f"end_{i}", value = None)
-                    clear = col3
+                    # Load existing data for the widget defaults
+                    existing = st.session_state.event_data.get(i, {"label": "", "data": (datetime.datetime.today(), datetime.datetime.today())})
+                    
+                    # We use on_change to trigger the save logic only when the user finishes typing
+                    col1.text_input(f"Label {i+1}", key=f"label{i}", value=existing["label"], on_change=update_event, args=(i,))
+                    col2.date_input(f"Start {i+1}", key=f"start{i}", value=existing["data"][0], on_change=update_event, args=(i,))
+                    col3.date_input(f"Days {i+1}", key=f"end{i}", value=existing["data"][1], on_change=update_event, args=(i,))
 
-                    # Store the data immediately if label is typed
-                    if label and start and end:
-                        st.session_state.event_data[label] = (start, end)
-
-            # 4. The "Add Row" Logic
-            # If the LAST label widget is not empty, increment the counter
-            # We access the widget value directly using session_state key
-            last_label_key = f"label_{st.session_state.input_rows - 1}"
-
-            if st.session_state.get(last_label_key): 
-                st.session_state.input_rows += 1
-                st.rerun() # Force reload to show the new empty row
-
-            print(st.session_state.event_data)
+            # 5. Final Data Construction
+            final_event_data = {
+                v["label"]: v["data"] 
+                for v in st.session_state.event_data.values()
+            }
         try:
             data_x = get_data(asset_ticker_x.upper(), asset_type_x)
             data_y = get_data(asset_ticker_y.upper(), asset_type_y)
@@ -92,7 +119,7 @@ def main():
                 data_y["Working"] = data_y["pct_change"]
                 
 
-    f1, f2, f3, f4, f5 = get_figs(data_x, data_y, st.session_state.event_data)
+    f1, f2, f3, f4, f5 = get_figs(data_x, data_y, final_event_data, asset_ticker_x, asset_ticker_y, rolling_period, period_shown)
 
     c1, c2 = st.columns(2)
     with c1:

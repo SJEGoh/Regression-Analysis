@@ -1,68 +1,113 @@
-from ddgs import DDGS
+from datetime import datetime
 from dateparser.search import search_dates
-import re
+import streamlit as st
+import urllib
+import pandas as pd
 from collections import Counter
+import re
+from dateparser.search import search_dates
+import requests
+import json
+from gnews import GNews
+from datetime import datetime
 
-def google_lite_date(event_name, specific_site = "bloomberg.com"):
-    """
-    Mimics Google's 'Direct Answer' feature.
-    1. Searches the web for the query.
-    2. Scans the snippets for date-like text.
-    3. Returns the most likely date object.
-    """
-    query = f"site:{specific_site} {event_name}"
-    print(f"🔍 Googling: '{query}'...")
+def general_event_searcher(query, start_year=None):
+    # 1. Regex Bouncer: Extract Year, Month, and Quarter
+    months_map = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+    }
+    query_lower = query.lower()
     
-    # 1. Get Top 3 Search Results
-    # We look at multiple results to increase confidence
-    with DDGS() as ddgs:
-        results = list(ddgs.text(query, max_results=3))
-        
-    if not results:
-        return None, "No results found."
-
-    # 2. Heuristic: Look for the date in the text
-    # We combine titles and snippets into one big block of text
-    potential_dates = []
+    # Extract Year (e.g., 2023)
+    year_match = re.search(r'20\d{2}', query)
+    target_year = int(year_match.group()) if year_match else start_year
     
-    for r in results:
-        text = f"{r['title']} . {r['body']}"
-        
-        # 'dateparser' is smart. It finds specific dates in messy text.
-        # We assume the date is in the past (e.g. "last friday")
-        extracted = search_dates(
-            text, 
-            languages=['en'], 
-            settings={'PREFER_DATES_FROM': 'past'}
-        )
-        
-        if extracted:
-            for date_str, date_obj in extracted:
-                # Filter out noise: Google doesn't care about dates 20 years ago or in the future
-                # for a typical "past event" query
-                if date_obj.year > 2000 and date_obj.year <= 2026:
-                    potential_dates.append(date_obj)
-
-    if not potential_dates:
-        return None, "No dates found in snippets."
-
-    print(potential_dates)
-    # 3. The "Consensus" Algorithm (Simplest Version)
-    # If we found multiple dates, pick the one that appears most often,
-    # or just the very first one found (usually the most relevant in search).
-    vote_counts = Counter(potential_dates)
-    winner, count = vote_counts.most_common(1)[0]
-    # For a simple project, the first valid date from the #1 result is usually the answer.
+    # Extract Quarter (e.g., Q1, q2)
+    quarter_match = re.search(r'q([1-4])', query_lower)
     
-    return winner, f"Found in {count} results"
+    # Extract Month (e.g., January)
+    target_month = next((v for k, v in months_map.items() if k in query_lower), None)
 
-# --- Usage ---
-event = "trump elected"
-date, source = google_lite_date(event)
+    # 2. Map Quarters to Allowed Months (+1 Month Release Lag)
+    allowed_months = []
+    if quarter_match:
+        q_num = int(quarter_match.group(1))
+        # Q1: Jan(1), Feb(2), Mar(3) -> Allowed: 1, 2, 3 + April(4)
+        base_months = [(q_num - 1) * 3 + 1, (q_num - 1) * 3 + 2, (q_num - 1) * 3 + 3]
+        allowed_months = base_months + [(base_months[-1] % 12) + 1]
+    elif target_month:
+        # Standard Month + 1 month lag
+        allowed_months = [target_month, (target_month % 12) + 1]
 
-if date:
-    print(f"✅ Event: {event}")
-    print(f"📅 Date: {date.strftime('%Y-%m-%d')}")
-    print(f"🔗 Source: {source}")
-else:
-    print("❌ Could not find date.")
+    # 3. Initialize GNews
+    search_start = datetime(target_year, 1, 1) if target_year else datetime(2015, 1, 1)
+    search_end = datetime(target_year, 12, 31) if target_year else datetime.today()
+    
+    # Q4 Adjustment: If searching Q4, we must extend end date to Jan of next year
+    if (quarter_match and int(quarter_match.group(1)) == 4) or target_month == 12:
+        search_end = datetime(target_year + 1, 1, 31)
+
+    google_news = GNews(
+        language='en', country='US', 
+        start_date=search_start, end_date=search_end, 
+        max_results=40
+    )
+    
+    results = google_news.get_news(query)
+    hits = []
+    
+    for res in results:
+        try:
+            raw_date = datetime.strptime(res['published date'], '%a, %d %b %Y %H:%M:%S %Z')
+            found_date = raw_date.date()
+        except: continue
+
+        # --- STRICT FILTERING ---
+        year_ok = (found_date.year == target_year) if target_year else True
+        month_ok = (found_date.month in allowed_months) if allowed_months else True
+        
+        # Exception: Q4/December reports often published in January next year
+        is_q4_overflow = (quarter_match and int(quarter_match.group(1)) == 4 and 
+                         found_date.year == target_year + 1 and found_date.month == 1)
+        
+        if (year_ok and month_ok) or is_q4_overflow:
+            hits.append({
+                "date": found_date,
+                "title": res['title'],
+                "snippet": res['description'],
+                "source": res['url']
+            })
+
+    # 4. Process for Consensus
+    if not hits: return pd.DataFrame()
+    df = pd.DataFrame(hits)
+    counts = Counter(df['date'])
+    df['Consensus'] = df['date'].apply(lambda x: f"★ {counts[x]} sources agree" if counts[x] > 1 else "")
+    
+    df['freq'] = df['date'].map(counts)
+    df = df.sort_values(by=['freq', 'date'], ascending=False).drop(columns=['freq'])
+    return df.drop_duplicates(subset=['date', 'title'])
+
+def process_search_results(raw_hits):
+    if not raw_hits:
+        return None
+
+    for hit in raw_hits:
+        if 'uddg=' in hit['source']:
+            hit['source'] = urllib.parse.unquote(hit['source'].split('uddg=')[1].split('&')[0])
+
+    date_counts = Counter([h['date'] for h in raw_hits])
+    df = pd.DataFrame(raw_hits)
+    df['Consensus'] = df['date'].apply(lambda x: f"★ {date_counts[x]} sources agree" if date_counts[x] > 1 else "")
+    df = df.sort_values(by='date', ascending=False)
+    
+    return df[df["Consensus"]!=""]
+
+def main():
+    # Example usage
+    print(general_event_searcher("CPI Report Release 2025 Q3"))
+
+
+if __name__ == "__main__":
+    main()

@@ -10,13 +10,14 @@ import streamlit as st
 import yfinance as yf
 from datetime import datetime, date
 import pandas_datareader.data as web
-
+from plotly.subplots import make_subplots
 
 # Index mapping
 INDEXES = {
     "SPX": "SPY",
     "HSI": "KTEC",
     "KOSPI": "EWY",
+
 }
 
 load_dotenv()
@@ -24,6 +25,9 @@ load_dotenv()
 # Data Loading
 client = RESTClient(st.secrets["POLYGON_API_KEY"])
 def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "day"):
+    if ticker in INDEXES.keys():
+        st.write(f"Mapping {ticker} to {INDEXES[ticker]}.")
+        ticker = INDEXES[ticker]
     aggs = client.get_aggs(
         ticker=ticker, 
         multiplier=1, 
@@ -77,13 +81,26 @@ def get_rolling_stats(ticker_price, bench_price, window = 20):
 
     return pd.DataFrame(data)
 
-def get_figs(ticker_price, bench_price, labels, window = 20):
+def get_figs(ticker_price, bench_price, labels, ticker_x, ticker_y, window = 20, rolling_period = 30):
+    aligned = pd.merge(ticker_price, bench_price, on="Date", suffixes=('', '_bench'))
+    ticker_price = aligned[["Date", "Working"]]
+    bench_price = aligned[["Date", "Working_bench"]].rename(columns={"Working_bench": "Working"})
     df = get_rolling_stats(ticker_price, bench_price, window = window)
-
+    df["residuals"] = (
+        ticker_price["Working"].values - 
+        (df["beta"].values * bench_price["Working"].values + df["const"].values)
+    )
+    working = df.iloc[-rolling_period:]
+    x=len(df.dropna())
+    st.write(f"Max days: {x}")
+    if rolling_period > x:
+        st.write("Choose smaller number.")
+        st.stop()
+    
     fig1 = go.Figure()
     fig1.add_trace(go.Scatter(
-        x = df.index,
-        y = df["beta"],
+        x = working.index,
+        y = working["beta"],
         mode = "lines",
         name = "Rolling Beta"
     ))
@@ -100,8 +117,8 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
     )
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
-        x = df.index,
-        y = df["r-squared"],
+        x = working.index,
+        y = working["r-squared"],
         mode = "lines",
         name = "Rolling R-squared"
     ))
@@ -118,8 +135,8 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
     )
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
-        x = df.index,
-        y = df["p-value"],
+        x = working.index,
+        y = working["p-value"],
         mode = "lines",
         name = "Rolling p-value"
     ))
@@ -135,15 +152,11 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
         font=dict(color="black"), # Ensure text isn't white-on-white
         margin=dict(l=20, r=20, t=40, b=20)
     )
-    df["residuals"] = (
-        ticker_price["Working"].values - 
-        (df["beta"].values * bench_price["Working"].values + df["const"].values)
-    )
 
     fig4 = go.Figure()
     fig4.add_trace(go.Bar(
-    x=df.iloc[-63:].index,
-    y=df.iloc[-63:]['residuals'],
+    x=working.index,
+    y=working['residuals'],
     marker_opacity = 1.0,
     name='Residuals',
     hovertemplate='<b>Date</b>: %{x}<br><b>Error</b>: %{y:.4f}<extra></extra>'
@@ -170,7 +183,7 @@ def get_figs(ticker_price, bench_price, labels, window = 20):
         font=dict(color="black"), # Ensure text isn't white-on-white
         margin=dict(l=20, r=20, t=40, b=20)
     )
-    fig5 = get_regression_plot(ticker_price, bench_price, df, labels)
+    fig5 = get_regression_plot(ticker_price, bench_price, df, ticker_x, ticker_y, labels)
     return fig1, fig2, fig3, fig4, fig5
 
 def get_heatmap(df, mode="Differences"):
@@ -238,7 +251,7 @@ def get_heatmap(df, mode="Differences"):
     return fig
 
 
-def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
+def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y, labels=None):
     fig = go.Figure()
     
     # 1. Prepare Data
@@ -320,8 +333,8 @@ def get_regression_plot(ticker_price, bench_price, ols_data, labels=None):
 
     fig.update_layout(
         title="Regression Analysis",
-        xaxis_title="Benchmark",
-        yaxis_title="Ticker",
+        xaxis_title=ticker_x,
+        yaxis_title=ticker_y,
         template="plotly_white",  # Explicitly white
         paper_bgcolor="white",    # Force the outer margin to white
         plot_bgcolor="white",     # Force the plotting area to white
@@ -466,8 +479,6 @@ def find_hsi_etf():
 def multiple_heatmap(df, event_data):
     heatmap_rows = []
     
-    # Identify the max 'd' across all events to keep the X-axis symmetrical
-    
     max_d = int(max([val[1] for val in event_data.values()]))
     full_rel_days = list(range(-max_d, max_d + 1))
 
@@ -475,71 +486,79 @@ def multiple_heatmap(df, event_data):
         d = int(d)
         target_dt = pd.to_datetime(target_date)
         
-        # Find index of T=0
         idx_matches = df.index[df['Date'] == target_dt]
-        if len(idx_matches) > 0:
-            idx = idx_matches[0]
-        else:
-            # Fallback to nearest trading day if target_dt is a weekend/holiday
-            idx = (df['Date'] - target_dt).abs().idxmin()
-        
-        # Define the theoretical bounds
-        # Note: start_idx and end_idx might go out of current df bounds
-        start_idx = idx - d
-        end_idx = idx + d
-        
-        # Create a local DataFrame for this event's window
-        # We handle out-of-bounds indices by allowing them to be NaN
-        window_indices = range(start_idx, end_idx + 1)
-        rel_days = range(-d, d + 1)
+        idx = idx_matches[0] if len(idx_matches) > 0 else (df['Date'] - target_dt).abs().idxmin()
         
         base_price = df.loc[idx, 'Working']
         
-        for r_day, g_idx in zip(rel_days, window_indices):
+        # Calculate window
+        for r_day in range(-d, d + 1):
+            g_idx = idx + r_day
             ret = np.nan
             if 0 <= g_idx < len(df):
                 ret = (df.loc[g_idx, 'Working'] / base_price - 1)
             
-            heatmap_rows.append({
-                'Event': event_name,
-                'Rel_Day': r_day,
-                'Return': ret
-            })
+            heatmap_rows.append({'Event': event_name, 'Rel_Day': r_day, 'Return': ret})
 
     plot_df = pd.DataFrame(heatmap_rows)
-    # Pivot will now naturally include NaNs for indices out of range
     pivot_df = plot_df.pivot(index="Event", columns="Rel_Day", values="Return")
-    
-    # Ensure all columns from -max_d to max_d exist, even if all NaN for an event
     pivot_df = pivot_df.reindex(columns=full_rel_days)
 
-    # Construct the Figure
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
-        colorscale='RdYlGn',
-        reversescale=True,
-        zmid=0,
-        colorbar=dict(title="Cum. Return (%)"),
-        # 'connectgaps=False' ensures the 'future' days stay empty
-        connectgaps=False,
-        hovertemplate="Event: %{y}<br>Day: T%{x}<br>Return: %{z:.2%}<extra></extra>"
-    ))
+    hit_rate = (pivot_df > 0).sum() / pivot_df.count()
+    hit_rate_row = hit_rate.to_frame(name='Hit Rate (%)').T
+    mean_row = pivot_df.mean().to_frame(name='Mean Return').T
+    
+    # 2. Text Matrices for annotations
+    stats_text = pd.concat([hit_rate_row, mean_row]).map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
+    events_text = pivot_df.map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
 
-    fig.update_layout(
-        title=f"Seasonality: T-{max_d} to T+{max_d} (Centered at T=0)",
-        xaxis=dict(title="Days from Event", tickmode='linear', dtick=1),
-        yaxis_title="Event",
-        template="plotly_white",  # Explicitly white
-        paper_bgcolor="white",    # Force the outer margin to white
-        plot_bgcolor="white",     # Force the plotting area to white
-        font=dict(color="black"), # Ensure text isn't white-on-white
-        margin=dict(l=20, r=20, t=40, b=20),
+    # 3. Setup Subplots
+    # row_heights ensures the top stats rows are compact
+    fig = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.05, 
+        row_heights=[0.3, 0.7]
     )
 
-    # Static vertical line at the center (T=0)
-    fig.add_vline(x=0, line_dash="dash", line_color="black", line_width=2)
+    # TRACE 1: Stats (Hit Rate & Mean)
+    fig.add_trace(go.Heatmap(
+        z=pd.concat([hit_rate_row, mean_row]).values,
+        x=pivot_df.columns,
+        y=['Hit Rate (%)', 'Mean Return'], # EXPLICIT LABELS
+        colorscale='YlGn',
+        zmin=0, zmax=1,
+        text=stats_text.values,
+        texttemplate="%{text}",
+        showscale=False,
+        xgap=1, ygap=1
+    ), row=1, col=1)
+
+    # TRACE 2: Individual Event Periods
+    fig.add_trace(go.Heatmap(
+        z=pivot_df.values,
+        x=pivot_df.columns,
+        y=pivot_df.index, # USES 'Period 1', 'Period 2', etc.
+        colorscale='RdYlGn',
+        zmid=0,
+        zmin=-0.05, zmax=0.05, # Keeps the return colors vibrant
+        text=events_text.values,
+        texttemplate="%{text}",
+        colorbar=dict(title="Return", tickformat=".1%"),
+        xgap=1, ygap=1
+    ), row=2, col=1)
+
+    # 4. Layout
+    fig.update_layout(
+        title=f"Event Analysis: T-{max_d} to T+{max_d}",
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="black"),
+        height=500 + (len(event_data) * 20),
+        yaxis=dict(autorange='reversed'), # Keep Hit Rate at the very top
+        yaxis2=dict(autorange='reversed') # Keep events in chronological order
+    )
 
     return fig
 
@@ -680,10 +699,10 @@ def get_bond_data(ticker_input):
     if country in international_bonds:
         pass
 
+    
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')
     spy = get_stooq_macro('SPY.US')
-    print(get_fred_bond_data("USA 2Y"))
 
     print(arg_3y)
 

@@ -2,6 +2,7 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
+import datetime
 
 # Add the parent directory to sys.path
 path_root = Path(__file__).parents[1]
@@ -13,7 +14,7 @@ def main():
     st.title("Seasonality Analysis")
     st.set_page_config(page_title="Seasonality Analysis", layout="wide")
     # heatmap + T-10 - T+10 time series
-    c1, c2, c3 = st.columns([0.2, 0.2, 0.6])
+    c1, c2, c3 = st.columns([0.2, 0.5, 0.3])
     with c1:
         asset_type_x = st.selectbox(
             "Select First Asset Class",
@@ -23,36 +24,60 @@ def main():
             "Enter First Ticker"
         )
         
-    with c3:
-        if "input_rows_single" not in st.session_state:
-            st.session_state.input_rows_single = 1  # Start with 1 row
+    with c2:
+        if st.button("Clear All Events"):
+    # Delete the data storage
+            if "event_data_indexed" in st.session_state:
+                del st.session_state.event_data_indexed
+            
+            # Delete the widget keys to prevent 'value' conflicts
+            # We find all keys starting with label_s, start_s, or end_s
+            for key in list(st.session_state.keys()):
+                if any(key.startswith(prefix) for prefix in ["label_s", "start_s", "end_s"]):
+                    del st.session_state[key]
+                    
+            st.rerun()
+        if "event_data_indexed" not in st.session_state:
+            st.session_state.event_data_indexed = {}
 
-        # 2. Initialize the Data Storage (The results)
-        if "event_data_single" not in st.session_state:
-            st.session_state.event_data_single = {} 
+        # 2. Define the update function
+        def update_event(index):
+            # Pull current values directly from the widget keys
+            label = st.session_state[f"label_s{index}"]
+            t0 = st.session_state[f"start_s{index}"]
+            days = st.session_state[f"end_s{index}"]
+            
+            if label.strip():
+                st.session_state.event_data_indexed[index] = {
+                    "label": label,
+                    "data": (t0, days)
+                }
+            else:
+                # Cleanup if label is deleted
+                st.session_state.event_data_indexed.pop(index, None)
 
-        # 3. Render the Rows
-        # We loop based on the Counter, not the data
-        for i in range(st.session_state.input_rows_single):
-            with st.container(): # Group them visually
+        # 3. Determine how many rows to show
+        completed_indices = sorted(st.session_state.event_data_indexed.keys())
+        num_to_show = max(1, len(completed_indices) + 1)
+
+        # 4. Render the Rows
+        for i in range(num_to_show):
+            with st.container():
                 col1, col2, col3 = st.columns([2, 1, 1])
                 
-                # Use key=... to make each widget unique
-                label = col1.text_input(f"Label", key=f"label_s{i}", value = None)
-                T0 = col2.date_input(f"Start", key=f"start_s{i}", value = None)
-                days = col3.number_input(f"Days", key=f"end_s{i}", value = None)
+                # Load existing data for the widget defaults
+                existing = st.session_state.event_data_indexed.get(i, {"label": "", "data": (datetime.datetime.today(), 5)})
+                
+                # We use on_change to trigger the save logic only when the user finishes typing
+                col1.text_input(f"Label {i+1}", key=f"label_s{i}", value=existing["label"], on_change=update_event, args=(i,))
+                col2.date_input(f"Start {i+1}", key=f"start_s{i}", value=existing["data"][0], on_change=update_event, args=(i,))
+                col3.number_input(f"Days {i+1}", key=f"end_s{i}", value=existing["data"][1], on_change=update_event, args=(i,))
 
-                # Store the data immediately if label is typed
-                if label and T0 and days:
-                    st.session_state.event_data_single[label] = (T0, days)
-
-        last_label_key = f"label_s{st.session_state.input_rows_single - 1}"
-
-        if st.session_state.get(last_label_key): 
-            st.session_state.input_rows_single += 1
-            st.rerun() # Force reload to show the new empty row
-
-        # {label: (T-0, days)}
+        # 5. Final Data Construction
+        final_event_data = {
+            v["label"]: v["data"] 
+            for v in st.session_state.event_data_indexed.values()
+        }
     try:
         dat = get_data(asset_ticker_x, asset_type_x)
     except:
@@ -62,13 +87,15 @@ def main():
         st.stop()
 
     dat["Working"] = dat["Close"]
-    if not st.session_state.event_data_single:
+    print(final_event_data)
+    if not final_event_data:
         st.stop()
+    st.space()
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(multiple_heatmap(dat, st.session_state.event_data_single), theme = None, width = "stretch")
+        st.plotly_chart(multiple_heatmap(dat, final_event_data), theme = None, width = "stretch")
     with c2:
-        st.plotly_chart(multiple_line_plot(dat, st.session_state.event_data_single), theme = None, width = "stretch")
+        st.plotly_chart(multiple_line_plot(dat, final_event_data), theme = None, width = "stretch")
     pass
 
 
