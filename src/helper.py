@@ -497,13 +497,6 @@ def get_monthly_series(ticker_price):
     
     return fig
 
-
-
-# Experiments
-def get_types():
-    details = client.get_ticker_details("2800")
-    print(f"Ticker: {details.ticker}, Name: {details.name}, Market: {details.market}")
-
 def find_hsi_etf():
     # This searches the whole database for 'Hang Seng'
     search_results = client.list_tickers(
@@ -514,27 +507,6 @@ def find_hsi_etf():
     
     for ticker in search_results:
         print(f"Ticker: {ticker.ticker} | Name: {ticker.name} | Locale: {ticker.locale}")
-
-def get_stooq_macro(ticker):
-    """
-    Argentina 3Y: '3AR.B'
-    SPY: 'SPY.US'
-    """
-    try:
-        # data_source='stooq' is the key here
-        df = web.DataReader(ticker, 'stooq')
-        
-        # Stooq returns data in reverse chronological order; sort it for analysis
-        df = df.sort_index()
-        
-        if df.empty:
-            print(f"Warning: No data returned for {ticker}")
-            return None
-            
-        return df
-    except Exception as e:
-        print(f"Error fetching {ticker} via pandas_datareader: {e}")
-        return None
 
 # single asset page
 def multiple_heatmap(df, event_data):
@@ -604,7 +576,11 @@ def multiple_heatmap(df, event_data):
         title=f"Seasonality: T-{max_d} to T+{max_d} (Centered at T=0)",
         xaxis=dict(title="Days from Event", tickmode='linear', dtick=1),
         yaxis_title="Event",
-        template="plotly_white"
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20),
     )
 
     # Static vertical line at the center (T=0)
@@ -612,16 +588,11 @@ def multiple_heatmap(df, event_data):
 
     return fig
 
-import plotly.graph_objects as go
-import numpy as np
-import pandas as pd
-
 def multiple_line_plot(df, event_data):
     fig = go.Figure()
     max_d = int(max([val[1] for val in event_data.values()]))
     
-    # 1. Dictionary to store returns for each relative day across all events
-    # Key: Rel_Day, Value: List of returns from different events
+    # Store returns for mean calculation
     all_returns = {d: [] for d in range(-max_d, max_d + 1)}
 
     for event_name, (target_date, d) in event_data.items():
@@ -631,52 +602,58 @@ def multiple_line_plot(df, event_data):
         idx_matches = df.index[df['Date'] == target_dt]
         idx = idx_matches[0] if len(idx_matches) > 0 else (df['Date'] - target_dt).abs().idxmin()
         
-        start_idx = idx - d
-        end_idx = idx + d
         rel_days = np.arange(-d, d + 1)
-        window_indices = np.arange(start_idx, end_idx + 1)
-        
-        y_values = []
-        x_values = []
+        window_indices = np.arange(idx - d, idx + d + 1)
         base_price = df.loc[idx, 'Working']
+        
+        y_values, x_values = [], []
         
         for r_day, g_idx in zip(rel_days, window_indices):
             if 0 <= g_idx < len(df):
                 ret = (df.loc[g_idx, 'Working'] / base_price - 1)
                 y_values.append(ret)
                 x_values.append(r_day)
-                # Collect for mean calculation
                 all_returns[r_day].append(ret)
         
+        # Determine line style: Dotted if "Current", otherwise solid
+        is_current = (event_name == "Current")
+        
+        line_style = dict(
+            width=2, 
+            dash='dot' if is_current else 'solid', 
+        )
+
         fig.add_trace(go.Scatter(
             x=x_values, y=y_values,
             mode='lines',
+            opacity=0.8 if is_current else 0.2,
             name=event_name,
-            opacity = 0.5,
-            line=dict(width=1.5), # Make individual lines thinner/subtle
+            line=line_style,
             hovertemplate=f"<b>{event_name}</b><br>Day: T%{{x}}<br>Return: %{{y:.2%}}<extra></extra>"
         ))
 
-    # 2. Calculate the Mean Line
+    # Calculate and add the Mean Line (Average)
     mean_x = sorted(all_returns.keys())
-    # Use np.nanmean if you pre-filled with NaNs, or just mean if you only appended actuals
     mean_y = [np.mean(all_returns[day]) if all_returns[day] else np.nan for day in mean_x]
 
-    # 3. Add Mean Trace
     fig.add_trace(go.Scatter(
         x=mean_x, y=mean_y,
         mode='lines',
         name='AVERAGE MOVE',
-        line=dict(color='black', width=4), # Bold black line for the average
+        line=dict(color='black', width=4), 
         hovertemplate="<b>AVERAGE</b><br>Day: T%{x}<br>Return: %{y:.2%}<extra></extra>"
     ))
 
-    # 4. Layout
+    # Layout configurations
     fig.update_layout(
-        title=f"Seasonality Drift: T-{max_d} to T+{max_d} Trajectories",
+        title=f"Seasonality Drift: T-{max_d} to T+{max_d}",
         xaxis=dict(title="Days from Event (T=0)", tickmode='linear', dtick=1, range=[-max_d, max_d]),
-        yaxis=dict(title="Cumulative Return (%)", tickformat=".2%", zeroline=True, zerolinewidth=2, zerolinecolor='gray'),
-        template="plotly_white",
+        yaxis=dict(title="Cumulative Return (%)", tickformat=".2%", zeroline=True, zerolinewidth=1.5, zerolinecolor='gray'),
+        template="plotly_white",  # Explicitly white
+        paper_bgcolor="white",    # Force the outer margin to white
+        plot_bgcolor="white",     # Force the plotting area to white
+        font=dict(color="black"), # Ensure text isn't white-on-white
+        margin=dict(l=20, r=20, t=40, b=20),
         hovermode="x unified"
     )
 
@@ -684,12 +661,77 @@ def multiple_line_plot(df, event_data):
     
     return fig
 
+def get_stooq_macro(ticker):
+    """
+    Argentina 3Y: '3AR.B'
+    SPY: 'SPY.US'
+    """
+    try:
+        # data_source='stooq' is the key here
+        df = web.DataReader(ticker, 'stooq')
+        
+        # Stooq returns data in reverse chronological order; sort it for analysis
+        df = df.sort_index()
+        
+        if df.empty:
+            print(f"Warning: No data returned for {ticker}")
+            return None
+            
+        return df
+    except Exception as e:
+        print(f"Error fetching {ticker} via pandas_datareader: {e}")
+        return None
+
+def get_fred_bond_data(ticker_input):
+    ticker_map = {
+        "USA 2Y": "DGS2",
+        "USA 10Y": "DGS10",
+        "USA 30Y": "DGS30"
+    }
+    symbol = ticker_map.get(ticker_input.upper())
+    
+    try:
+        # 1. Fetch data
+        df = web.DataReader(symbol, 'fred', start='2015-01-01')
+        
+        # DEBUG: Check if data actually arrived before cleaning
+        print(f"Rows fetched for {symbol}: {len(df)}")
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        # 2. Reformat
+        df = df.reset_index()
+        df.columns = ['Date', 'Close']
+        
+        # 3. Clean specifically
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.dropna(subset=['Close']) # Only drop if the price is missing
+        
+        return df
+    except Exception as e:
+        print(f"FRED Error: {e}")
+        return pd.DataFrame()
+international_bonds = {"CANADA"}
+
+def get_international(ticker_input):
+    return get_stooq_macro(ticker_input)
+
+def get_bond_data(ticker_input):
+    country, length = ticker_input.upper().split(" ")
+    if country == "USA":
+        return get_fred_bond_data(ticker_input)
+    
+    if country in international_bonds:
+        pass
+
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')
     spy = get_stooq_macro('SPY.US')
+    print(get_fred_bond_data("USA 2Y"))
 
     print(arg_3y)
 
 
 if __name__ == "__main__":
-    print(main())
+    main()

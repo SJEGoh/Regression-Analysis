@@ -50,6 +50,7 @@ def main():
                     label = col1.text_input(f"Label", key=f"label_{i}", value = None)
                     start = col2.date_input(f"Start", key=f"start_{i}", value = None)
                     end   = col3.date_input(f"End", key=f"end_{i}", value = None)
+                    clear = col3
 
                     # Store the data immediately if label is typed
                     if label and start and end:
@@ -77,9 +78,19 @@ def main():
             data_x["Working"] = data_x["Close"]
             data_y["Working"] = data_y["Close"]
         elif lvd == "Difference":
-            data_x["Working"] = data_x["pct_change"]
-            data_y["Working"] = data_y["pct_change"]  
-        
+            if asset_type_x == "Bond":
+                # Calculate Basis Point change: (Yield_t - Yield_t-1) * 100
+                # This assumes your 'Close' is already in percentage format (e.g., 3.50)
+                data_x["Working"] = data_x["Close"].diff() * 100
+            else:
+                # Keep standard pct_change for Equity/FX
+                data_x["Working"] = data_x["pct_change"]
+                
+            if asset_type_y == "Bond":
+                data_y["Working"] = data_y["Close"].diff() * 100
+            else:
+                data_y["Working"] = data_y["pct_change"]
+                
 
     f1, f2, f3, f4, f5 = get_figs(data_x, data_y, st.session_state.event_data)
 

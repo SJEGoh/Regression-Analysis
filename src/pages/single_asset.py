@@ -24,32 +24,32 @@ def main():
         )
         
     with c3:
-        if "input_rows" not in st.session_state:
-            st.session_state.input_rows = 1  # Start with 1 row
+        if "input_rows_single" not in st.session_state:
+            st.session_state.input_rows_single = 1  # Start with 1 row
 
         # 2. Initialize the Data Storage (The results)
-        if "event_data" not in st.session_state:
-            st.session_state.event_data = {} 
+        if "event_data_single" not in st.session_state:
+            st.session_state.event_data_single = {} 
 
         # 3. Render the Rows
         # We loop based on the Counter, not the data
-        for i in range(st.session_state.input_rows):
+        for i in range(st.session_state.input_rows_single):
             with st.container(): # Group them visually
                 col1, col2, col3 = st.columns([2, 1, 1])
                 
                 # Use key=... to make each widget unique
-                label = col1.text_input(f"Label", key=f"label_{i}", value = None)
-                T0 = col2.date_input(f"Start", key=f"start_{i}", value = None)
-                days = col3.number_input(f"Days", key=f"end_{i}", value = None)
+                label = col1.text_input(f"Label", key=f"label_s{i}", value = None)
+                T0 = col2.date_input(f"Start", key=f"start_s{i}", value = None)
+                days = col3.number_input(f"Days", key=f"end_s{i}", value = None)
 
                 # Store the data immediately if label is typed
                 if label and T0 and days:
-                    st.session_state.event_data[label] = (T0, days)
+                    st.session_state.event_data_single[label] = (T0, days)
 
-        last_label_key = f"label_{st.session_state.input_rows - 1}"
+        last_label_key = f"label_s{st.session_state.input_rows_single - 1}"
 
         if st.session_state.get(last_label_key): 
-            st.session_state.input_rows += 1
+            st.session_state.input_rows_single += 1
             st.rerun() # Force reload to show the new empty row
 
         # {label: (T-0, days)}
@@ -66,9 +66,9 @@ def main():
         st.stop()
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(multiple_heatmap(dat, st.session_state.event_data))
+        st.plotly_chart(multiple_heatmap(dat, st.session_state.event_data), theme = None, width = "stretch")
     with c2:
-        st.plotly_chart(multiple_line_plot(dat, st.session_state.event_data))
+        st.plotly_chart(multiple_line_plot(dat, st.session_state.event_data), theme = None, width = "stretch")
     pass
 
 
