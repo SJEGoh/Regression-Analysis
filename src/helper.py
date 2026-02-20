@@ -467,6 +467,7 @@ def multiple_heatmap(df, event_data):
     heatmap_rows = []
     
     # Identify the max 'd' across all events to keep the X-axis symmetrical
+    
     max_d = int(max([val[1] for val in event_data.values()]))
     full_rel_days = list(range(-max_d, max_d + 1))
 

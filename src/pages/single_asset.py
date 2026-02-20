@@ -62,13 +62,13 @@ def main():
         st.stop()
 
     dat["Working"] = dat["Close"]
-    if not st.session_state.event_data:
+    if not st.session_state.event_data_single:
         st.stop()
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(multiple_heatmap(dat, st.session_state.event_data), theme = None, width = "stretch")
+        st.plotly_chart(multiple_heatmap(dat, st.session_state.event_data_single), theme = None, width = "stretch")
     with c2:
-        st.plotly_chart(multiple_line_plot(dat, st.session_state.event_data), theme = None, width = "stretch")
+        st.plotly_chart(multiple_line_plot(dat, st.session_state.event_data_single), theme = None, width = "stretch")
     pass
 
 
