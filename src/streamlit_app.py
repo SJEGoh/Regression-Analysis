@@ -15,6 +15,10 @@ def main():
                 "Select First Asset Class",
                 options = ["Equity", "Bond", "FX"]
             )
+            if asset_type_x == "Bond":
+                st.write("Eg. USA 3Y")
+            if asset_type_x == "FX":
+                st.write("Eg. SGDUSD")
             asset_ticker_x = st.text_input(
                 "Enter First Ticker"
             )
@@ -29,6 +33,10 @@ def main():
                 "Select Second Asset Class",
                 options = ["Equity", "Bond", "FX"]
             )
+            if asset_type_y == "Bond":
+                st.write("Eg. USA 3Y")
+            if asset_type_y == "FX":
+                st.write("Eg. SGDUSD")
             asset_ticker_y = st.text_input(
                 "Enter Second Ticker"
             )
@@ -96,8 +104,9 @@ def main():
         try:
             data_x = get_data(asset_ticker_x.upper(), asset_type_x)
             data_y = get_data(asset_ticker_y.upper(), asset_type_y)
-        except:
+        except Exception as e:
             st.write("Ticker not found. Please try again.")
+            print(e)
             st.stop()
         if data_x.empty or data_y.empty:
             st.stop()
@@ -108,17 +117,18 @@ def main():
             if asset_type_x == "Bond":
                 # Calculate Basis Point change: (Yield_t - Yield_t-1) * 100
                 # This assumes your 'Close' is already in percentage format (e.g., 3.50)
-                data_x["Working"] = data_x["Close"].diff() * 100
+                data_x["Working"] = data_x["Close"].diff()
             else:
                 # Keep standard pct_change for Equity/FX
                 data_x["Working"] = data_x["pct_change"]
                 
             if asset_type_y == "Bond":
-                data_y["Working"] = data_y["Close"].diff() * 100
+                data_y["Working"] = data_y["Close"].diff()
             else:
                 data_y["Working"] = data_y["pct_change"]
-                
-
+            data_x = data_x.dropna()
+            data_y = data_y.dropna()
+        
     f1, f2, f3, f4, f5 = get_figs(data_x, data_y, final_event_data, asset_ticker_x, asset_ticker_y, rolling_period, period_shown)
 
     c1, c2 = st.columns(2)

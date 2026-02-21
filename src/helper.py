@@ -43,9 +43,23 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
     df.columns = ["Date", "Close"]
     return df
     
-def get_yfinance_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "day"):
-    aggs = yf.download(ticker, start = frm, end = to)
+def get_yfinance_data(ticker, frm="2015-01-01", to=date.today(), timespan="day"):
+    # 1. Download data
+    ticker = ticker + "=X"
+    aggs = yf.download(ticker, start=frm, end=to)
+    
+    # 2. Fix the MultiIndex Column Error
+    # If the columns are MultiIndex, collapse them to the Price Level (Close, Open, etc.)
+    if isinstance(aggs.columns, pd.MultiIndex):
+        aggs.columns = aggs.columns.get_level_values(0) 
+    
+    # 3. Clean up the 'Date' column and index
     aggs = aggs.reset_index()
+    
+    # Standardize the 'Date' column name (yfinance sometimes uses 'Date' or 'index')
+    if 'Date' not in aggs.columns:
+        aggs.rename(columns={aggs.columns[0]: 'Date'}, inplace=True)
+        
     return aggs[["Date", "Close"]]
 
 @st.cache_data(ttl = 1800) # 30 minutes
@@ -54,6 +68,8 @@ def get_data(ticker, asset_type, frm = "2015-01-01", to = date.today()):
         return pd.DataFrame()
     if asset_type == "Equity":
         df = get_polygon_data(ticker, frm, to)
+    if asset_type == "Bond":
+        df = get_bond_data(ticker)
     if asset_type == "FX":
         df = get_yfinance_data(ticker, frm, to)
     
@@ -62,13 +78,22 @@ def get_data(ticker, asset_type, frm = "2015-01-01", to = date.today()):
     return df
 
 
-def get_rolling_stats(ticker_price, bench_price, window = 20):
-
+def get_rolling_stats(t_price, b_price, window = 20):
+    ticker_price = t_price.copy()
+    bench_price = b_price.copy()
+    ticker_price['Date'] = pd.to_datetime(ticker_price['Date'])
+    bench_price['Date'] = pd.to_datetime(bench_price['Date'])
     aligned_data = ticker_price[["Date", "Working"]].merge(
         bench_price[["Date", "Working"]], how = "inner", on = "Date"
     )
     aligned_data.set_index("Date", inplace = True)
     aligned_data.columns = ["Y", "X"]
+    print(aligned_data)
+    print(f"DEBUG: Ticker Date Type: {type(ticker_price['Date'].iloc[0])}")
+    print(f"DEBUG: Bench Date Type: {type(bench_price['Date'].iloc[0])}")
+    print(f"DEBUG: Ticker head: {ticker_price['Date'].iloc[0]}")
+    print(f"DEBUG: Bench head: {bench_price['Date'].iloc[0]}")
+    aligned_data = aligned_data.dropna(subset=['Y', 'X'])
     X = sm.add_constant(aligned_data["X"])
     model = RollingOLS(aligned_data["Y"], X, window = window)
     results = model.fit()
@@ -82,6 +107,9 @@ def get_rolling_stats(ticker_price, bench_price, window = 20):
     return pd.DataFrame(data)
 
 def get_figs(ticker_price, bench_price, labels, ticker_x, ticker_y, window = 20, rolling_period = 30):
+    ticker_price['Date'] = pd.to_datetime(ticker_price['Date']).dt.normalize()
+    print(bench_price)
+    bench_price['Date'] = pd.to_datetime(bench_price['Date']).dt.normalize()
     aligned = pd.merge(ticker_price, bench_price, on="Date", suffixes=('', '_bench'))
     ticker_price = aligned[["Date", "Working"]]
     bench_price = aligned[["Date", "Working_bench"]].rename(columns={"Working_bench": "Working"})
@@ -463,18 +491,6 @@ def get_monthly_series(ticker_price):
     )
     
     return fig
-
-def find_hsi_etf():
-    # This searches the whole database for 'Hang Seng'
-    search_results = client.list_tickers(
-        market="stocks", 
-        search="Hang Seng", 
-        active=True
-    )
-    
-    for ticker in search_results:
-        print(f"Ticker: {ticker.ticker} | Name: {ticker.name} | Locale: {ticker.locale}")
-
 # single asset page
 def multiple_heatmap(df, event_data):
     heatmap_rows = []
@@ -636,10 +652,60 @@ def multiple_line_plot(df, event_data):
     return fig
 
 def get_stooq_macro(ticker):
-    """
-    Argentina 3Y: '3AR.B'
-    SPY: 'SPY.US'
-    """
+    STOOQ_BOND_MAP = {
+        # --- NORTH AMERICA ---
+        "USA 2Y": "2YUSY.B",
+        "USA 5Y": "5YUSY.B",
+        "USA 10Y": "10YUSY.B",
+        "USA 30Y": "30YUSY.B",
+        "CANADA 2Y": "2YCAY.B",
+        "CANADA 5Y": "5YCAY.B",
+        "CANADA 10Y": "10YCAY.B",
+        "CANADA 30Y": "30YCAY.B",
+        "MEXICO 2Y": "2YMXY.B",
+        "MEXICO 5Y": "5YMXY.B",
+        "MEXICO 10Y": "10YMXY.B",
+
+        # --- EUROPE (MAJOR) ---
+        "GERMANY 2Y": "2YDEY.B",
+        "GERMANY 5Y": "5YDEY.B",
+        "GERMANY 10Y": "10YDEY.B",
+        "GERMANY 30Y": "30YDEY.B",
+        "UK GILT 2Y": "2YUKY.B",
+        "UK GILT 5Y": "5YUKY.B",
+        "UK GILT 10Y": "10YUKY.B",
+        "UK GILT 30Y": "30YUKY.B",
+        "FRANCE 2Y": "2YFRY.B",
+        "FRANCE 5Y": "5YFRY.B",
+        "FRANCE 10Y": "10YFRY.B",
+        "FRANCE 30Y": "30YFRY.B",
+        "ITALY 2Y": "2YITY.B",
+        "ITALY 5Y": "5YITY.B",
+        "ITALY 10Y": "10YITY.B",
+        "ITALY 30Y": "30YITY.B",
+
+        # --- EUROPE (SECONDARY) ---
+        "SPAIN 10Y": "10YESY.B",
+        "NETHERLANDS 10Y": "10NLY.B",
+        "SWITZERLAND 10Y": "10CHY.B",
+        "POLAND 10Y": "10PLY.B",
+
+        # --- ASIA-PACIFIC ---
+        "JAPAN 2Y": "2YJPY.B",
+        "JAPAN 5Y": "5YJPY.B",
+        "JAPAN 10Y": "10JPY.B",
+        "JAPAN 30Y": "30JPY.B",
+        "AUSTRALIA 2Y": "2YAUY.B",
+        "AUSTRALIA 5Y": "5YAUY.B",
+        "AUSTRALIA 10Y": "10YAUY.B",
+        "AUSTRALIA 30Y": "30YAUY.B",
+        "HONG KONG 2Y": "2YHKY.B",
+        "HONG KONG 10Y": "10YHKY.B"
+    }
+    ticker = STOOQ_BOND_MAP.get(ticker)
+    if not ticker:
+        st.write("Bond not found")
+        st.stop()
     try:
         # data_source='stooq' is the key here
         df = web.DataReader(ticker, 'stooq')
@@ -651,18 +717,29 @@ def get_stooq_macro(ticker):
             print(f"Warning: No data returned for {ticker}")
             return None
             
-        return df
+        return df.reset_index()
     except Exception as e:
         print(f"Error fetching {ticker} via pandas_datareader: {e}")
         return None
 
 def get_fred_bond_data(ticker_input):
     ticker_map = {
+        "USA 1M": "DGS1MO",
+        "USA 3M": "DGS3MO",
+        "USA 6M": "DGS6MO",
+        "USA 1Y": "DGS1",
         "USA 2Y": "DGS2",
+        "USA 3Y": "DGS3",
+        "USA 5Y": "DGS5",
+        "USA 7Y": "DGS7",
         "USA 10Y": "DGS10",
-        "USA 30Y": "DGS30"
+        "USA 20Y": "DGS20",
+        "USA 30Y": "DGS30",
     }
     symbol = ticker_map.get(ticker_input.upper())
+    if not symbol:
+        st.write("Bond not found")
+        st.stop()
     
     try:
         # 1. Fetch data
@@ -686,18 +763,34 @@ def get_fred_bond_data(ticker_input):
     except Exception as e:
         print(f"FRED Error: {e}")
         return pd.DataFrame()
-international_bonds = {"CANADA"}
+BOND_COUNTRIES = {
+    "AUSTRALIA",
+    "CANADA",
+    "FRANCE",
+    "GERMANY",
+    "HONG KONG",
+    "ITALY",
+    "JAPAN",
+    "MEXICO",
+    "NETHERLANDS",
+    "POLAND",
+    "SPAIN",
+    "SWITZERLAND",
+    "UK",
+    "USA"
+}
 
 def get_international(ticker_input):
     return get_stooq_macro(ticker_input)
 
 def get_bond_data(ticker_input):
+    ticker_input = ticker_input.upper()
     country, length = ticker_input.upper().split(" ")
     if country == "USA":
         return get_fred_bond_data(ticker_input)
     
-    if country in international_bonds:
-        pass
+    if country in BOND_COUNTRIES:
+        return get_international(ticker_input)
 
     
 def main():

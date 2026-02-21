@@ -20,6 +20,10 @@ def main():
             "Select First Asset Class",
             options = ["Equity", "Bond", "FX"]
         )
+        if asset_type_x == "Bond":
+            st.write("Eg. USA 3Y")
+        if asset_type_x == "FX":
+            st.write("Eg. SGDUSD")
         asset_ticker_x = st.text_input(
             "Enter First Ticker"
         )
