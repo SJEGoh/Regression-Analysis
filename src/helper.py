@@ -10,6 +10,7 @@ import streamlit as st
 import yfinance as yf
 from datetime import datetime, date
 import pandas_datareader.data as web
+import re
 from plotly.subplots import make_subplots
 
 # Index mapping
@@ -70,10 +71,15 @@ def get_data(ticker, asset_type, frm = "2015-01-01", to = date.today()):
         df = get_polygon_data(ticker, frm, to)
     if asset_type == "Bond":
         df = get_bond_data(ticker)
+        df['Date'] = pd.to_datetime(df['Date']).dt.normalize() + pd.Timedelta(hours=5)
     if asset_type == "FX":
         df = get_yfinance_data(ticker, frm, to)
-    
-    df["pct_change"] = df["Close"].pct_change()
+    if asset_type == "Bond Spread":
+        df = get_spread(ticker)
+    if asset_type == "Bond" or asset_type == "Bond Spread":
+        df["pct_change"] = df["Close"].diff()
+    else:
+        df["pct_change"] = df["Close"].pct_change()
 
     return df
 
@@ -88,11 +94,7 @@ def get_rolling_stats(t_price, b_price, window = 20):
     )
     aligned_data.set_index("Date", inplace = True)
     aligned_data.columns = ["Y", "X"]
-    print(aligned_data)
-    print(f"DEBUG: Ticker Date Type: {type(ticker_price['Date'].iloc[0])}")
-    print(f"DEBUG: Bench Date Type: {type(bench_price['Date'].iloc[0])}")
-    print(f"DEBUG: Ticker head: {ticker_price['Date'].iloc[0]}")
-    print(f"DEBUG: Bench head: {bench_price['Date'].iloc[0]}")
+    aligned_data = aligned_data.replace([np.inf, -np.inf], np.nan).dropna(subset=["Y", "X"])
     aligned_data = aligned_data.dropna(subset=['Y', 'X'])
     X = sm.add_constant(aligned_data["X"])
     model = RollingOLS(aligned_data["Y"], X, window = window)
@@ -106,18 +108,22 @@ def get_rolling_stats(t_price, b_price, window = 20):
 
     return pd.DataFrame(data)
 
-def get_figs(ticker_price, bench_price, labels, ticker_x, ticker_y, window = 20, rolling_period = 30):
+def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_period = 30):
+    ticker_price = t_price.copy()
+    bench_price = b_price.copy()
     ticker_price['Date'] = pd.to_datetime(ticker_price['Date']).dt.normalize()
-    print(bench_price)
     bench_price['Date'] = pd.to_datetime(bench_price['Date']).dt.normalize()
     aligned = pd.merge(ticker_price, bench_price, on="Date", suffixes=('', '_bench'))
     ticker_price = aligned[["Date", "Working"]]
     bench_price = aligned[["Date", "Working_bench"]].rename(columns={"Working_bench": "Working"})
     df = get_rolling_stats(ticker_price, bench_price, window = window)
+    df = df.merge(bench_price, on = "Date", how = "inner")
+    df = df.merge(ticker_price, on = "Date", how = "inner", suffixes = ("_bench", "_ticker"))
     df["residuals"] = (
-        ticker_price["Working"].values - 
-        (df["beta"].values * bench_price["Working"].values + df["const"].values)
+        df["Working_ticker"].values - 
+        (df["beta"].values * df["Working_bench"].values + df["const"].values)
     )
+    print(df)
     working = df.iloc[-rolling_period:]
     x=len(df.dropna())
     st.write(f"Max days: {x}")
@@ -296,13 +302,6 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
     line_y = [m * x + c for x in line_x]
 
     # Plot this "infinite" line FIRST (so it's behind the dots)
-    fig.add_trace(go.Scatter(
-        x=line_x,
-        y=line_y,
-        mode='lines',
-        name=f'Current Regime (β={m:.2f})',
-        line=dict(color='black', width=2, dash='dash')
-    ))
 
     # 3. Plot the Data Cloud
     fig.add_trace(go.Scatter(
@@ -313,6 +312,13 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
         marker=dict(color='rgba(31, 119, 180, 0.5)', size=6),
         hovertemplate='<b>Date</b>: %{text}<br><b>Bench</b>: %{x:.2f}<br><b>Ticker</b>: %{y:.2f}<extra></extra>',
         text=df["Date"].dt.strftime('%Y-%m-%d')
+    ))
+    fig.add_trace(go.Scatter(
+        x=line_x,
+        y=line_y,
+        mode='lines',
+        name=f'Current Regime (β={m:.2f})',
+        line=dict(color='black', width=2, dash='dash')
     ))
 
     # 4. Handle Specific Period Labels (Lines Only)
@@ -492,12 +498,12 @@ def get_monthly_series(ticker_price):
     
     return fig
 # single asset page
-def multiple_heatmap(df, event_data):
+def multiple_heatmap(df, event_data, asset_type = "Equity"):
     heatmap_rows = []
     
     max_d = int(max([val[1] for val in event_data.values()]))
     full_rel_days = list(range(-max_d, max_d + 1))
-
+    df = df.reset_index(drop=True)
     for event_name, (target_date, d) in event_data.items():
         d = int(d)
         target_dt = pd.to_datetime(target_date)
@@ -506,14 +512,15 @@ def multiple_heatmap(df, event_data):
         idx = idx_matches[0] if len(idx_matches) > 0 else (df['Date'] - target_dt).abs().idxmin()
         
         base_price = df.loc[idx, 'Working']
-        
         # Calculate window
         for r_day in range(-d, d + 1):
             g_idx = idx + r_day
             ret = np.nan
             if 0 <= g_idx < len(df):
-                ret = (df.loc[g_idx, 'Working'] / base_price - 1)
-            
+                if asset_type == "Equity" or asset_type == "FX":
+                    ret = (df.loc[g_idx, 'Working'] / base_price - 1)
+                else: 
+                    ret = (df.loc[g_idx, 'Working'] - base_price)
             heatmap_rows.append({'Event': event_name, 'Rel_Day': r_day, 'Return': ret})
 
     plot_df = pd.DataFrame(heatmap_rows)
@@ -578,10 +585,10 @@ def multiple_heatmap(df, event_data):
 
     return fig
 
-def multiple_line_plot(df, event_data):
+def multiple_line_plot(df, event_data, asset_type = "Equity"):
     fig = go.Figure()
     max_d = int(max([val[1] for val in event_data.values()]))
-    
+    df = df.reset_index(drop=True)
     # Store returns for mean calculation
     all_returns = {d: [] for d in range(-max_d, max_d + 1)}
 
@@ -600,7 +607,10 @@ def multiple_line_plot(df, event_data):
         
         for r_day, g_idx in zip(rel_days, window_indices):
             if 0 <= g_idx < len(df):
-                ret = (df.loc[g_idx, 'Working'] / base_price - 1)
+                if asset_type == "Equity" or asset_type == "FX":
+                    ret = (df.loc[g_idx, 'Working'] / base_price - 1)
+                else: 
+                    ret = (df.loc[g_idx, 'Working'] - base_price)
                 y_values.append(ret)
                 x_values.append(r_day)
                 all_returns[r_day].append(ret)
@@ -777,7 +787,8 @@ BOND_COUNTRIES = {
     "SPAIN",
     "SWITZERLAND",
     "UK",
-    "USA"
+    "USA",
+    "US"
 }
 
 def get_international(ticker_input):
@@ -786,18 +797,43 @@ def get_international(ticker_input):
 def get_bond_data(ticker_input):
     ticker_input = ticker_input.upper()
     country, length = ticker_input.upper().split(" ")
+    if country == "US":
+        country += "A"
     if country == "USA":
         return get_fred_bond_data(ticker_input)
     
     if country in BOND_COUNTRIES:
         return get_international(ticker_input)
 
+def get_spread(ticker_input):
+    ticker_input = ticker_input.upper()
+    tenors = re.findall(r'\d+', ticker_input)
+    if len(tenors) == 3:
+        tenor_first = get_fred_bond_data(f"USA {tenors[0]}Y")
+        tenor_mid = get_fred_bond_data(f"USA {tenors[1]}Y")
+        tenor_last = get_fred_bond_data(f"USA {tenors[2]}Y")
+
+        compiled = tenor_first.merge(tenor_mid, on = "Date", how = "inner", suffixes = ("_f", "_m"))
+        compiled = compiled.merge(tenor_last, on = "Date", how = "inner")
+
+        compiled["Close"] = 2 * compiled["Close_m"] - (compiled["Close"] + compiled["Close_f"])
+        return compiled[["Date", "Close"]]
+        
+    if len(tenors) == 2:
+        tenor_first = get_fred_bond_data(f"USA {tenors[0]}Y")
+        tenor_second = get_fred_bond_data(f"USA {tenors[1]}Y")
+        compiled = tenor_first.merge(tenor_second, on = "Date", how = "inner", suffixes = ("_f", "_s"))
+
+        compiled["Close"] = compiled["Close_f"] - compiled["Close_s"]
+        return compiled[["Date", "Close"]]
+    
+    return
     
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')
     spy = get_stooq_macro('SPY.US')
 
-    print(arg_3y)
+    print(get_spread("2s5s10s"))
 
 
 if __name__ == "__main__":

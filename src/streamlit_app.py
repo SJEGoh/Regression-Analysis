@@ -13,12 +13,14 @@ def main():
         with c1:
             asset_type_x = st.selectbox(
                 "Select First Asset Class",
-                options = ["Equity", "Bond", "FX"]
+                options = ["Equity", "Bond", "FX", "Bond Spread"]
             )
             if asset_type_x == "Bond":
                 st.write("Eg. USA 3Y")
             if asset_type_x == "FX":
                 st.write("Eg. SGDUSD")
+            if asset_type_x == "Bond Spread":
+                st.write("Eg. 2s5s10s")
             asset_ticker_x = st.text_input(
                 "Enter First Ticker"
             )
@@ -31,12 +33,14 @@ def main():
         with c2:
             asset_type_y = st.selectbox(
                 "Select Second Asset Class",
-                options = ["Equity", "Bond", "FX"]
+                options = ["Equity", "Bond", "FX", "Bond Spread"]
             )
             if asset_type_y == "Bond":
                 st.write("Eg. USA 3Y")
             if asset_type_y == "FX":
                 st.write("Eg. SGDUSD")
+            if asset_type_y == "Bond Spread":
+                st.write("Eg. 2s5s10s")
             asset_ticker_y = st.text_input(
                 "Enter Second Ticker"
             )

@@ -18,12 +18,14 @@ def main():
     with c1:
         asset_type_x = st.selectbox(
             "Select First Asset Class",
-            options = ["Equity", "Bond", "FX"]
+            options = ["Equity", "Bond", "FX", "Bond Spread"]
         )
         if asset_type_x == "Bond":
             st.write("Eg. USA 3Y")
         if asset_type_x == "FX":
             st.write("Eg. SGDUSD")
+        if asset_type_x == "Bond Spread":
+            st.write("Eg. 2s5s10s")
         asset_ticker_x = st.text_input(
             "Enter First Ticker"
         )
@@ -91,15 +93,14 @@ def main():
         st.stop()
 
     dat["Working"] = dat["Close"]
-    print(final_event_data)
     if not final_event_data:
         st.stop()
     st.space()
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(multiple_heatmap(dat, final_event_data), theme = None, width = "stretch")
+        st.plotly_chart(multiple_heatmap(dat, final_event_data, asset_type_x), theme = None, width = "stretch")
     with c2:
-        st.plotly_chart(multiple_line_plot(dat, final_event_data), theme = None, width = "stretch")
+        st.plotly_chart(multiple_line_plot(dat, final_event_data, asset_type_x), theme = None, width = "stretch")
     pass
 
 
