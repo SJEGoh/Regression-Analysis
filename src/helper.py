@@ -497,8 +497,17 @@ def get_monthly_series(ticker_price):
     )
     
     return fig
+
 # single asset page
 def multiple_heatmap(df, event_data, asset_type = "Equity"):
+    if asset_type in ["Bond", "Bond Spread"]:
+        y_title = "Cumulative Change (bps)"
+        y_format = ".1f"  # Shows 5.0 instead of 500%
+        val_suffix = "bps"
+    else:
+        y_title = "Cumulative Return (%)"
+        y_format = ".2%"  
+        val_suffix = ""
     heatmap_rows = []
     
     max_d = int(max([val[1] for val in event_data.values()]))
@@ -520,7 +529,7 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
                 if asset_type == "Equity" or asset_type == "FX":
                     ret = (df.loc[g_idx, 'Working'] / base_price - 1)
                 else: 
-                    ret = (df.loc[g_idx, 'Working'] - base_price)
+                    ret = (df.loc[g_idx, 'Working'] - base_price) * 100
             heatmap_rows.append({'Event': event_name, 'Rel_Day': r_day, 'Return': ret})
 
     plot_df = pd.DataFrame(heatmap_rows)
@@ -532,11 +541,13 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
     mean_row = pivot_df.mean().to_frame(name='Mean Return').T
     
     # 2. Text Matrices for annotations
-    stats_text = pd.concat([hit_rate_row, mean_row]).map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
-    events_text = pivot_df.map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
+    stats_text = pd.concat([hit_rate_row, mean_row]).copy()
+    stats_text.iloc[0] = stats_text.iloc[0].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
+    stats_text.iloc[1] = stats_text.iloc[1].map(lambda x: f"{x:{y_format}}" if pd.notnull(x) else "")
+
+    events_text = pivot_df.map(lambda x: f"{x:{y_format}}" if pd.notnull(x) else "")
 
     # 3. Setup Subplots
-    # row_heights ensures the top stats rows are compact
     fig = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
@@ -548,9 +559,9 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
     fig.add_trace(go.Heatmap(
         z=pd.concat([hit_rate_row, mean_row]).values,
         x=pivot_df.columns,
-        y=['Hit Rate (%)', 'Mean Return'], # EXPLICIT LABELS
+        y=['Hit Rate (%)', f'Mean {val_suffix}'], 
         colorscale='YlGn',
-        zmin=0, zmax=1,
+        zmin=0, zmax=15 if asset_type in ["Bond", "Bond Spread"] else 1,
         text=stats_text.values,
         texttemplate="%{text}",
         showscale=False,
@@ -561,13 +572,15 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
     fig.add_trace(go.Heatmap(
         z=pivot_df.values,
         x=pivot_df.columns,
-        y=pivot_df.index, # USES 'Period 1', 'Period 2', etc.
+        y=pivot_df.index, 
         colorscale='RdYlGn',
         zmid=0,
-        zmin=-0.05, zmax=0.05, # Keeps the return colors vibrant
+        # MINIMAL CHANGE: Sync scale with Trace 1 for bonds
+        zmin=-15 if asset_type in ["Bond", "Bond Spread"] else -0.05, 
+        zmax=15 if asset_type in ["Bond", "Bond Spread"] else 0.05,
         text=events_text.values,
         texttemplate="%{text}",
-        colorbar=dict(title="Return", tickformat=".1%"),
+        colorbar=dict(title=val_suffix if val_suffix else "Return", tickformat=y_format),
         xgap=1, ygap=1
     ), row=2, col=1)
 
@@ -579,8 +592,8 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
         plot_bgcolor="white",
         font=dict(color="black"),
         height=500 + (len(event_data) * 20),
-        yaxis=dict(autorange='reversed'), # Keep Hit Rate at the very top
-        yaxis2=dict(autorange='reversed') # Keep events in chronological order
+        yaxis=dict(autorange='reversed'), 
+        yaxis2=dict(autorange='reversed') 
     )
 
     return fig
@@ -589,6 +602,14 @@ def multiple_line_plot(df, event_data, asset_type = "Equity"):
     fig = go.Figure()
     max_d = int(max([val[1] for val in event_data.values()]))
     df = df.reset_index(drop=True)
+    if asset_type in ["Bond", "Bond Spread"]:
+        y_title = "Cumulative Change (bps)"
+        y_format = ".1f"  # Shows 5.0 instead of 500%
+        val_suffix = "bps"
+    else:
+        y_title = "Cumulative Return (%)"
+        y_format = ".2%"  
+        val_suffix = ""
     # Store returns for mean calculation
     all_returns = {d: [] for d in range(-max_d, max_d + 1)}
 
@@ -610,7 +631,7 @@ def multiple_line_plot(df, event_data, asset_type = "Equity"):
                 if asset_type == "Equity" or asset_type == "FX":
                     ret = (df.loc[g_idx, 'Working'] / base_price - 1)
                 else: 
-                    ret = (df.loc[g_idx, 'Working'] - base_price)
+                    ret = (df.loc[g_idx, 'Working'] - base_price) * 100
                 y_values.append(ret)
                 x_values.append(r_day)
                 all_returns[r_day].append(ret)
@@ -629,8 +650,13 @@ def multiple_line_plot(df, event_data, asset_type = "Equity"):
             opacity=0.8 if is_current else 0.2,
             name=event_name,
             line=line_style,
-            hovertemplate=f"<b>{event_name}</b><br>Day: T%{{x}}<br>Return: %{{y:.2%}}<extra></extra>"
-        ))
+            hovertemplate=(
+                    f"<b>{event_name}</b><br>"
+                    f"Day: T%{{x}}<br>"
+                    f"Change: %{{y:{y_format}}}{val_suffix}"
+                    "<extra></extra>"
+                )
+            ))
 
     # Calculate and add the Mean Line (Average)
     mean_x = sorted(all_returns.keys())
@@ -641,14 +667,19 @@ def multiple_line_plot(df, event_data, asset_type = "Equity"):
         mode='lines',
         name='AVERAGE MOVE',
         line=dict(color='black', width=4), 
-        hovertemplate="<b>AVERAGE</b><br>Day: T%{x}<br>Return: %{y:.2%}<extra></extra>"
+        hovertemplate=(
+            f"<b>{event_name}</b><br>"
+            f"Day: T%{{x}}<br>"
+            f"Change: %{{y:{y_format}}}{val_suffix}"
+            "<extra></extra>"
+        )
     ))
 
     # Layout configurations
     fig.update_layout(
         title=f"Seasonality Drift: T-{max_d} to T+{max_d}",
         xaxis=dict(title="Days from Event (T=0)", tickmode='linear', dtick=1, range=[-max_d, max_d]),
-        yaxis=dict(title="Cumulative Return (%)", tickformat=".2%", zeroline=True, zerolinewidth=1.5, zerolinecolor='gray'),
+        yaxis=dict(title=y_title, tickformat=y_format, zeroline=True, zerolinewidth=1.5, zerolinecolor='gray'),
         template="plotly_white",  # Explicitly white
         paper_bgcolor="white",    # Force the outer margin to white
         plot_bgcolor="white",     # Force the plotting area to white
