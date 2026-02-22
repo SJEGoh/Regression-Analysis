@@ -151,10 +151,10 @@ def main():
 
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(get_annual_series(data_x, lvd), theme = None)
-        st.plotly_chart(get_monthly_series(data_x), theme = None)
+        st.plotly_chart(get_annual_series(data_x, lvd, asset_type_x), theme = None)
+        st.plotly_chart(get_monthly_series(data_x, lvd, asset_type_x), theme = None)
     with c2:
-        st.plotly_chart(get_heatmap(data_x, lvd))
+        st.plotly_chart(get_heatmap(data_x, lvd, asset_type_x))
 
 
 if __name__ == "__main__":

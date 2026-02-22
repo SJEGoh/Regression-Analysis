@@ -119,11 +119,10 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     df = get_rolling_stats(ticker_price, bench_price, window = window)
     df = df.merge(bench_price, on = "Date", how = "inner")
     df = df.merge(ticker_price, on = "Date", how = "inner", suffixes = ("_bench", "_ticker"))
-    df["residuals"] = (
+    df.loc[:, 'residuals'] = (
         df["Working_ticker"].values - 
         (df["beta"].values * df["Working_bench"].values + df["const"].values)
     )
-    print(df)
     working = df.iloc[-rolling_period:]
     x=len(df.dropna())
     st.write(f"Max days: {x}")
@@ -220,18 +219,27 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     fig5 = get_regression_plot(ticker_price, bench_price, df, ticker_x, ticker_y, labels)
     return fig1, fig2, fig3, fig4, fig5
 
-def get_heatmap(df, mode="Differences"):
+def get_heatmap(df, mode="Differences", asset_type="Equity"):
     temp = df.copy()[["Date", "Working"]]
     temp["Month"] = temp["Date"].dt.month
     temp["Year"] = temp["Date"].dt.year
     
     is_diff = "diff" in str(mode).lower() 
+    is_bond = asset_type in ["Bond", "Bond Spread"]
     
     if is_diff:
-        monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
-            lambda x: (1 + x).prod() - 1
-        ).reset_index()
-        val_fmt = ".1%"
+        # Bond: Sum differences | Equity: Compound pct changes
+        if is_bond:
+            monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
+                lambda x: x.diff().sum() * 100
+            ).reset_index()
+            val_fmt = ".1f"
+        else:
+            monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
+                lambda x: (1 + x).prod() - 1
+            ).reset_index()
+            val_fmt = ".1%"
+            
         color_scale = 'RdYlGn'
         z_mid = 0
     else:
@@ -243,9 +251,8 @@ def get_heatmap(df, mode="Differences"):
     heatmap_data = monthly_df.pivot(index='Year', columns='Month', values='Working')
     month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    month_map = dict(zip(range(1, 13), month_names))
-    heatmap_data.rename(columns=month_map, inplace=True)
-    heatmap_data = heatmap_data.reindex(columns=month_names)
+    heatmap_data = heatmap_data.reindex(columns=range(1, 13))
+    heatmap_data.columns = month_names
 
     heatmap_data.sort_index(ascending=False, inplace=True)
     
@@ -258,7 +265,12 @@ def get_heatmap(df, mode="Differences"):
         final_df = heatmap_data
 
     final_df.index = final_df.index.astype(str) 
-    text_template = final_df.map(lambda x: f"{x:{val_fmt}}" if pd.notnull(x) else "")
+    
+    # Format Hit Rate as % always, Mean/Cells based on asset type
+    text_template = final_df.astype(object).copy()
+    for row in text_template.index:
+        fmt = ".1%" if "Hit Rate" in row else val_fmt
+        text_template.loc[row] = final_df.loc[row].map(lambda x: f"{x:{fmt}}" if pd.notnull(x) else "")
 
     fig = go.Figure(data=go.Heatmap(
         z=final_df.values,
@@ -266,15 +278,16 @@ def get_heatmap(df, mode="Differences"):
         y=final_df.index,
         colorscale=color_scale,
         zmid=z_mid,
-        text=text_template,
+        zmin=-15 if is_bond and is_diff else None, # Prevent outliers from washing out colors
+        zmax=15 if is_bond and is_diff else None,
+        text=text_template.values,
         texttemplate="%{text}",
         textfont={"size": 10},
-        xgap=1,
-        ygap=1
+        xgap=1, ygap=1
     ))
 
     fig.update_layout(
-        title=f'Monthly Seasonality Heatmap ({mode})',
+        title=f'Monthly Seasonality Heatmap ({mode} - {asset_type})',
         xaxis_nticks=12,
         yaxis=dict(type='category', tickmode='linear', autorange="reversed"),
         height=800,
@@ -283,7 +296,6 @@ def get_heatmap(df, mode="Differences"):
     )
 
     return fig
-
 
 def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y, labels=None):
     fig = go.Figure()
@@ -381,49 +393,63 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
 
     return fig
 
-def get_annual_series(ticker_price, mode = "Difference"):
+def get_annual_series(ticker_price, mode = "Difference", asset_type = "Equity"):
+    if asset_type in ["Bond", "Bond Spread"]:
+        y_title = "Cumulative Change (bps)"
+        y_format = ".1f"  # Shows 5.0 instead of 500%
+        val_suffix = "bps"
+    else:
+        y_title = "Cumulative Return (%)"
+        y_format = ".2%"  
+        val_suffix = ""
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
 
     fig = go.Figure()
     if mode == "Difference":
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
-            curr = temp[temp["Year"] == y]
+            curr = temp[temp["Year"] == y].copy() # copy to avoid slice warnings
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            
+            # Logic swap: Difference * 100 for bonds, pct change for equities
+            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+            
             fig.add_trace(go.Scatter(
                 x = curr["Date"],
-                y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+                y = y_vals,
                 mode = "lines",
                 name = f"{y}"
             ))
         
-        curr = temp[temp["Year"] == date.today().year]
+        curr = temp[temp["Year"] == date.today().year].copy()
+        y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+        
         fig.add_trace(go.Scatter(
             x = curr["Date"],
-            y = curr["Close"]/curr.iloc[0]["Close"] - 1,
+            y = y_vals,
             mode = "lines",
             name = date.today().year
         ))
         fig.update_layout(
             title='Annual Returns Overlay',
             xaxis_title='Date',
-            # ADD THIS BLOCK:
             yaxis=dict(
-                title='Cumulative Return',
-                tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+                title=y_title,
+                tickformat=y_format
             ),
-            template="plotly_white",  # Explicitly white
-            paper_bgcolor="white",    # Force the outer margin to white
-            plot_bgcolor="white",     # Force the plotting area to white
-            font=dict(color="black"), # Ensure text isn't white-on-white
+            template="plotly_white",
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(color="black"),
             margin=dict(l=20, r=20, t=40, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
 
     else:
+        # Code for "Price" mode remains the same as it shows absolute levels
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y]
-            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            curr.loc[:, "Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             fig.add_trace(go.Scatter(
                 x = curr["Date"],
                 y = curr["Close"],
@@ -441,57 +467,66 @@ def get_annual_series(ticker_price, mode = "Difference"):
         fig.update_layout(
             title='Annual Price Overlay',
             xaxis_title='Date',
-            # ADD THIS BLOCK:
             yaxis=dict(
-                title='Price',
-                tickformat='.2' # Use '.1%' if you want one decimal place (e.g., 5.2%)
+                title='Yield %' if val_suffix == "bps" else 'Price',
+                tickformat='.2f'
             ),
-            template="plotly_white",  # Explicitly white
-            paper_bgcolor="white",    # Force the outer margin to white
-            plot_bgcolor="white",     # Force the plotting area to white
-            font=dict(color="black"), # Ensure text isn't white-on-white
+            template="plotly_white",
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(color="black"),
             margin=dict(l=20, r=20, t=40, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         
     return fig
 
-def get_monthly_series(ticker_price):
+def get_monthly_series(ticker_price, mode="Difference", asset_type="Equity"):
+    if asset_type in ["Bond", "Bond Spread"]:
+        y_title, y_format, val_suffix = "Cumulative Change (bps)", ".1f", "bps"
+    else:
+        y_title, y_format, val_suffix = "Cumulative Return (%)", ".2%", ""
+
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
     temp["Month"] = temp["Date"].dt.month
     temp = temp[temp["Month"] == date.today().month]
 
     fig = go.Figure()
-    for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
-        curr = temp[temp["Year"] == y]
-        curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
-        fig.add_trace(go.Scatter(
-            x = curr["Date"],
-            y = curr["Close"]/curr.iloc[0]["Close"] - 1,
-            mode = "lines",
-            name = f"{y}"
-        ))
-    
-    curr = temp[temp["Year"] == date.today().year]
-    fig.add_trace(go.Scatter(
-        x = curr["Date"],
-        y = curr["Close"]/curr.iloc[0]["Close"] - 1,
-        mode = "lines",
-        name = date.today().year
-    ))
+    # Logic for Cumulative Changes (Bips vs %)
+    if mode == "Difference":
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+            curr = temp[temp["Year"] == y].copy()
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+            fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
+        
+        curr = temp[temp["Year"] == date.today().year].copy()
+        y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+        fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
+        
+        y_axis_config = dict(title=y_title, tickformat=y_format)
+
+    # Logic for Absolute Levels (Yield % vs Price)
+    else:
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+            curr = temp[temp["Year"] == y].copy()
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=f"{y}"))
+        
+        curr = temp[temp["Year"] == date.today().year].copy()
+        fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
+        
+        y_axis_config = dict(title='Yield %' if val_suffix == "bps" else 'Price', tickformat='.2f')
+
     fig.update_layout(
-        title='Annual Returns Overlay',
+        title=f'Monthly Overlay (Month {date.today().month}) - {mode}',
         xaxis_title='Date',
-        # ADD THIS BLOCK:
-        yaxis=dict(
-            title='Cumulative Return',
-            tickformat='.0%' # Use '.1%' if you want one decimal place (e.g., 5.2%)
-        ),
-        template="plotly_white",  # Explicitly white
-        paper_bgcolor="white",    # Force the outer margin to white
-        plot_bgcolor="white",     # Force the plotting area to white
-        font=dict(color="black"), # Ensure text isn't white-on-white
+        yaxis=y_axis_config,
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="black"),
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
@@ -541,7 +576,7 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
     mean_row = pivot_df.mean().to_frame(name='Mean Return').T
     
     # 2. Text Matrices for annotations
-    stats_text = pd.concat([hit_rate_row, mean_row]).copy()
+    stats_text = pd.concat([hit_rate_row, mean_row]).astype(object).copy()
     stats_text.iloc[0] = stats_text.iloc[0].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
     stats_text.iloc[1] = stats_text.iloc[1].map(lambda x: f"{x:{y_format}}" if pd.notnull(x) else "")
 
