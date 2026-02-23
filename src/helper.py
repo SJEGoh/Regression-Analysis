@@ -14,11 +14,31 @@ import re
 from plotly.subplots import make_subplots
 
 # Index mapping
+# Mappings for truncated index names to US-listed ETFs (Polygon Compatible)
 INDEXES = {
-    "SPX": "SPY",
-    "HSI": "KTEC",
-    "KOSPI": "EWY",
-
+    # --- Major Benchmarks ---
+    "SPX": "SPY",      # S&P 500
+    "NDX": "QQQ",      # Nasdaq 100
+    "RTY": "IWM",      # Russell 2000 (US Small-Cap)
+    "DJI": "DIA",      # Dow Jones Industrial Average
+    
+    # --- Global/Regional Benchmarks ---
+    "HSI": "KTEC",     # Hang Seng Tech (HK/China Proxy)
+    "NKY": "EWJ",      # Nikkei 225 (Japan)
+    "DAX": "EWG",      # DAX 40 (Germany)
+    "KOSPI": "EWY",    # South Korea
+    "FTSE": "EWU",     # FTSE 100 (UK)
+    "AS51": "EWA",     # ASX 200 (Australia)
+    "TWSE": "EWT",     # Taiwan Stock Exchange
+    "CAC": "EWQ",      # CAC 40 (France)
+    "IBOV": "EWZ",     # IBOVESPA (Brazil)
+    "SENSEX": "INDA",  # BSE SENSEX (India)
+    
+    # --- Specialized & Sector Benchmarks ---
+    "SOX": "SOXX",     # PHLX Semiconductor Index
+    "VIX": "VIXY",     # CBOE Volatility Index (Short-Term Futures Proxy)
+    "MXEF": "EEM",     # MSCI Emerging Markets Index
+    "MXEA": "EFA",     # MSCI EAFE Index (Developed ex-US/Canada)
 }
 
 load_dotenv()
