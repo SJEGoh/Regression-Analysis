@@ -7,7 +7,8 @@ import datetime
 
 
 def main():
-    draw_custom_header()
+    with st.expander("Nav Bar"):
+        draw_custom_header()
     st.set_page_config(page_title="Regression Analysis", layout="wide")
     with st.expander("Query Options", expanded = True):
         c1, c2, c3 = st.columns([0.2, 0.2, 0.6])
