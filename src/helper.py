@@ -219,78 +219,91 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     fig5 = get_regression_plot(ticker_price, bench_price, df, ticker_x, ticker_y, labels)
     return fig1, fig2, fig3, fig4, fig5
 
-def get_heatmap(df, asset_type="Equity", mode="Difference"):
-    temp = df.copy()[["Date", "Working"]]
+
+def get_heatmap(df, asset_type="Equity", mode="Differences"):
+    temp = df.copy()[["Date", "pct_change"]]
     temp["Month"] = temp["Date"].dt.month
     temp["Year"] = temp["Date"].dt.year
     
     is_diff = "diff" in str(mode).lower() 
     is_bond = asset_type in ["Bond", "Bond Spread"]
     
+    # 1. Metric Calculation
     if is_diff:
-        # Bond: Sum differences | Equity: Compound pct changes
         if is_bond:
-            monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
+            monthly_df = temp.groupby(["Year", "Month"])["pct_change"].apply(
                 lambda x: x.diff().sum() * 100
             ).reset_index()
             val_fmt = ".1f"
         else:
-            monthly_df = temp.groupby(["Year", "Month"])["Working"].apply(
+            monthly_df = temp.groupby(["Year", "Month"])["pct_change"].apply(
                 lambda x: (1 + x).prod() - 1
             ).reset_index()
             val_fmt = ".1%"
-            
         color_scale = 'RdYlGn'
         z_mid = 0
     else:
-        monthly_df = temp.groupby(["Year", "Month"])["Working"].last().reset_index()
+        monthly_df = temp.groupby(["Year", "Month"])["pct_change"].last().reset_index()
         val_fmt = ".1f"
         color_scale = 'Viridis' 
         z_mid = None
 
-    heatmap_data = monthly_df.pivot(index='Year', columns='Month', values='Working')
-    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    # 2. Pivot and Structure
+    heatmap_data = monthly_df.pivot(index='Year', columns='Month', values='pct_change')
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     heatmap_data = heatmap_data.reindex(columns=range(1, 13))
     heatmap_data.columns = month_names
-
     heatmap_data.sort_index(ascending=False, inplace=True)
     
     if is_diff:
         hit_rate = (heatmap_data > 0).sum() / heatmap_data.count()
-        hit_rate_row = hit_rate.to_frame(name='Hit Rate').T
         mean_row = heatmap_data.mean().to_frame(name='Average').T
-        final_df = pd.concat([hit_rate_row, mean_row, heatmap_data])
+        final_df = pd.concat([hit_rate.to_frame(name='Hit Rate').T, mean_row, heatmap_data])
     else:
         final_df = heatmap_data
 
+    # 3. FIX: Row-by-Row Standardization with Absolute Hit Rate Scaling
+    def standardize_row(row):
+        # Map Hit Rate 0.0-1.0 to color scale -1 to 1 (0.5 is neutral/white)
+        if "Hit Rate" in str(row.name):
+            return (row * 2) - 1 
+            
+        std = row.std()
+        if pd.isna(std) or std == 0:
+            return row - row.mean()
+        return (row - row.mean()) / std
+
+    z_values = final_df.apply(standardize_row, axis=1)
+
+    # 4. Text Template with RAW VALUES
     final_df.index = final_df.index.astype(str) 
-    
-    # Format Hit Rate as % always, Mean/Cells based on asset type
     text_template = final_df.astype(object).copy()
     for row in text_template.index:
         fmt = ".1%" if "Hit Rate" in row else val_fmt
-        text_template.loc[row] = final_df.loc[row].map(lambda x: f"{x:{fmt}}" if pd.notnull(x) else "")
+        text_template.loc[row] = final_df.loc[row].map(
+            lambda x: f"{x:{fmt}}" if pd.notnull(x) else ""
+        )
 
+    # 5. Build Figure
     fig = go.Figure(data=go.Heatmap(
-        z=final_df.values,
+        z=z_values.values,
+        text=text_template.values,
         x=final_df.columns,
         y=final_df.index,
         colorscale=color_scale,
         zmid=z_mid,
-        zmin=-15 if is_bond and is_diff else None, # Prevent outliers from washing out colors
-        zmax=15 if is_bond and is_diff else None,
-        text=text_template.values,
+        zmin=-1, zmax=1,             # Fixes the range for standardized rows
         texttemplate="%{text}",
         textfont={"size": 10},
-        xgap=1, ygap=1
+        xgap=1, ygap=1,
+        showscale=False
     ))
 
     fig.update_layout(
-        title=f'Monthly Seasonality Heatmap ({asset_type})',
+        title=f'Monthly Seasonality: {asset_type} (Row-Standardized, Absolute Hit Rate)',
         xaxis_nticks=12,
         yaxis=dict(type='category', tickmode='linear', autorange="reversed"),
-        height=800,
+        height=400 + (len(final_df) * 25),
         margin=dict(t=80, b=20, l=100, r=20),
         template="plotly_white"
     )
@@ -447,7 +460,7 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
     return fig
 
-def get_monthly_series(ticker_price, mode="Difference", asset_type="Equity"):
+def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
         y_title, y_format, val_suffix = "Cumulative Change (bps)", ".1f", "bps"
     else:
