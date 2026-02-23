@@ -882,11 +882,11 @@ def draw_custom_header():
         st.image("assets/NUSSIF_logo.jpeg", width=90)
     with nav1:
         st.write("")
-        if st.button("📈 REGRESSIONS", use_container_width=True):
+        if st.button("📈 REGRESSION ANALYSIS", use_container_width=True):
             st.switch_page("streamlit_app.py")
     with nav2:
         st.write("")
-        if st.button("📊 ANALYSIS", use_container_width=True):
+        if st.button("📊 SEASONALITY ANALYSIS", use_container_width=True):
             st.switch_page("pages/single_asset.py")
     st.divider()
     
