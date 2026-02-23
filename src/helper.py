@@ -219,7 +219,7 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     fig5 = get_regression_plot(ticker_price, bench_price, df, ticker_x, ticker_y, labels)
     return fig1, fig2, fig3, fig4, fig5
 
-def get_heatmap(df, mode="Differences", asset_type="Equity"):
+def get_heatmap(df, asset_type="Equity", mode="Difference"):
     temp = df.copy()[["Date", "Working"]]
     temp["Month"] = temp["Date"].dt.month
     temp["Year"] = temp["Date"].dt.year
@@ -287,7 +287,7 @@ def get_heatmap(df, mode="Differences", asset_type="Equity"):
     ))
 
     fig.update_layout(
-        title=f'Monthly Seasonality Heatmap ({mode} - {asset_type})',
+        title=f'Monthly Seasonality Heatmap ({asset_type})',
         xaxis_nticks=12,
         yaxis=dict(type='category', tickmode='linear', autorange="reversed"),
         height=800,
@@ -393,7 +393,7 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
 
     return fig
 
-def get_annual_series(ticker_price, mode = "Difference", asset_type = "Equity"):
+def get_annual_series(ticker_price, asset_type = "Equity"):
     if asset_type in ["Bond", "Bond Spread"]:
         y_title = "Cumulative Change (bps)"
         y_format = ".1f"  # Shows 5.0 instead of 500%
@@ -406,79 +406,45 @@ def get_annual_series(ticker_price, mode = "Difference", asset_type = "Equity"):
     temp["Year"] = temp["Date"].dt.year
 
     fig = go.Figure()
-    if mode == "Difference":
-        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
-            curr = temp[temp["Year"] == y].copy() # copy to avoid slice warnings
-            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
-            
-            # Logic swap: Difference * 100 for bonds, pct change for equities
-            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
-            
-            fig.add_trace(go.Scatter(
-                x = curr["Date"],
-                y = y_vals,
-                mode = "lines",
-                name = f"{y}"
-            ))
+    for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+        curr = temp[temp["Year"] == y].copy() # copy to avoid slice warnings
+        curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
         
-        curr = temp[temp["Year"] == date.today().year].copy()
+        # Logic swap: Difference * 100 for bonds, pct change for equities
         y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
         
         fig.add_trace(go.Scatter(
             x = curr["Date"],
             y = y_vals,
             mode = "lines",
-            name = date.today().year
+            name = f"{y}"
         ))
-        fig.update_layout(
-            title='Annual Returns Overlay',
-            xaxis_title='Date',
-            yaxis=dict(
-                title=y_title,
-                tickformat=y_format
-            ),
-            template="plotly_white",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font=dict(color="black"),
-            margin=dict(l=20, r=20, t=40, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
+    
+    curr = temp[temp["Year"] == date.today().year].copy()
+    y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+    
+    fig.add_trace(go.Scatter(
+        x = curr["Date"],
+        y = y_vals,
+        mode = "lines",
+        name = date.today().year
+    ))
+    fig.update_layout(
+        title='Annual Returns Overlay',
+        xaxis_title='Date',
+        yaxis=dict(
+            title=y_title,
+            tickformat=y_format
+        ),
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="black"),
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
 
-    else:
-        # Code for "Price" mode remains the same as it shows absolute levels
-        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
-            curr = temp[temp["Year"] == y]
-            curr.loc[:, "Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
-            fig.add_trace(go.Scatter(
-                x = curr["Date"],
-                y = curr["Close"],
-                mode = "lines",
-                name = f"{y}"
-            ))
-        
-        curr = temp[temp["Year"] == date.today().year]
-        fig.add_trace(go.Scatter(
-            x = curr["Date"],
-            y = curr["Close"],
-            mode = "lines",
-            name = date.today().year
-        ))
-        fig.update_layout(
-            title='Annual Price Overlay',
-            xaxis_title='Date',
-            yaxis=dict(
-                title='Yield %' if val_suffix == "bps" else 'Price',
-                tickformat='.2f'
-            ),
-            template="plotly_white",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font=dict(color="black"),
-            margin=dict(l=20, r=20, t=40, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        
+
     return fig
 
 def get_monthly_series(ticker_price, mode="Difference", asset_type="Equity"):
