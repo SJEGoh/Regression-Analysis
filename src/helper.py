@@ -372,7 +372,7 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
                         marker=dict(color=color, size=7, opacity=0.8),
                         showlegend=False # Keep legend clean
                     ))
-                    
+
                     fig.add_trace(go.Scatter(
                         x=inf_x, 
                         y=inf_y, 
@@ -522,20 +522,21 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     return fig
 
 # single asset page
-def multiple_heatmap(df, event_data, asset_type = "Equity"):
+def multiple_heatmap(df, event_data, asset_type="Equity"):
+    # 1. Setup Formatting Logic
     if asset_type in ["Bond", "Bond Spread"]:
-        y_title = "Cumulative Change (bps)"
-        y_format = ".1f"  # Shows 5.0 instead of 500%
+        y_format = ".1f"
         val_suffix = "bps"
     else:
-        y_title = "Cumulative Return (%)"
-        y_format = ".2%"  
+        y_format = ".2%"
         val_suffix = ""
+
     heatmap_rows = []
-    
     max_d = int(max([val[1] for val in event_data.values()]))
     full_rel_days = list(range(-max_d, max_d + 1))
     df = df.reset_index(drop=True)
+
+    # 2. Extract Event Windows
     for event_name, (target_date, d) in event_data.items():
         d = int(d)
         target_dt = pd.to_datetime(target_date)
@@ -544,79 +545,71 @@ def multiple_heatmap(df, event_data, asset_type = "Equity"):
         idx = idx_matches[0] if len(idx_matches) > 0 else (df['Date'] - target_dt).abs().idxmin()
         
         base_price = df.loc[idx, 'Working']
-        # Calculate window
-        for r_day in range(-d, d + 1):
+        for r_day in range(-max_d, max_d + 1): # Fill the full range for alignment
             g_idx = idx + r_day
             ret = np.nan
-            if 0 <= g_idx < len(df):
-                if asset_type == "Equity" or asset_type == "FX":
+            if 0 <= g_idx < len(df) and abs(r_day) <= d:
+                if asset_type in ["Equity", "FX"]:
                     ret = (df.loc[g_idx, 'Working'] / base_price - 1)
                 else: 
                     ret = (df.loc[g_idx, 'Working'] - base_price) * 100
             heatmap_rows.append({'Event': event_name, 'Rel_Day': r_day, 'Return': ret})
 
+    # 3. Structure Final DataFrame
     plot_df = pd.DataFrame(heatmap_rows)
     pivot_df = plot_df.pivot(index="Event", columns="Rel_Day", values="Return")
     pivot_df = pivot_df.reindex(columns=full_rel_days)
 
     hit_rate = (pivot_df > 0).sum() / pivot_df.count()
-    hit_rate_row = hit_rate.to_frame(name='Hit Rate (%)').T
     mean_row = pivot_df.mean().to_frame(name='Mean Return').T
     
-    # 2. Text Matrices for annotations
-    stats_text = pd.concat([hit_rate_row, mean_row]).astype(object).copy()
-    stats_text.iloc[0] = stats_text.iloc[0].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
-    stats_text.iloc[1] = stats_text.iloc[1].map(lambda x: f"{x:{y_format}}" if pd.notnull(x) else "")
+    # Merge Stats and Events into one DF for consistent indexing
+    final_df = pd.concat([hit_rate.to_frame(name='Hit Rate (%)').T, mean_row, pivot_df])
+    final_df.index = final_df.index.astype(str)
 
-    events_text = pivot_df.map(lambda x: f"{x:{y_format}}" if pd.notnull(x) else "")
+    # 4. ROW-BY-ROW STANDARDIZATION (Colors Only)
+    def standardize_row(row):
+        # Scale Hit Rate 0-1 into -1 to 1 spectrum
+        if "Hit Rate" in str(row.name):
+            return (row * 2) - 1
+        std = row.std()
+        if pd.isna(std) or std == 0:
+            return row.fillna(0) - row.mean()
+        return (row - row.mean()) / std
 
-    # 3. Setup Subplots
-    fig = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.05, 
-        row_heights=[0.3, 0.7]
-    )
+    z_values = final_df.apply(standardize_row, axis=1)
 
-    # TRACE 1: Stats (Hit Rate & Mean)
-    fig.add_trace(go.Heatmap(
-        z=pd.concat([hit_rate_row, mean_row]).values,
-        x=pivot_df.columns,
-        y=['Hit Rate (%)', f'Mean {val_suffix}'], 
-        colorscale='YlGn',
-        zmin=0, zmax=15 if asset_type in ["Bond", "Bond Spread"] else 1,
-        text=stats_text.values,
-        texttemplate="%{text}",
-        showscale=False,
-        xgap=1, ygap=1
-    ), row=1, col=1)
+    # 5. TEXT TEMPLATE (Raw Values Only)
+    text_template = final_df.astype(object).copy()
+    for row in text_template.index:
+        fmt = ".1%" if "Hit Rate" in row else y_format
+        text_template.loc[row] = final_df.loc[row].map(
+            lambda x: f"{x:{fmt}}" if pd.notnull(x) else ""
+        )
 
-    # TRACE 2: Individual Event Periods
-    fig.add_trace(go.Heatmap(
-        z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index, 
+    # 6. Build Figure (Single Heatmap instead of Subplots for "Style Sync")
+    fig = go.Figure(data=go.Heatmap(
+        z=z_values.values,           # The standardization drives the color intensity
+        text=text_template.values,   # The raw bps/% drive the text labels
+        x=final_df.columns,
+        y=final_df.index,
         colorscale='RdYlGn',
         zmid=0,
-        # MINIMAL CHANGE: Sync scale with Trace 1 for bonds
-        zmin=-15 if asset_type in ["Bond", "Bond Spread"] else -0.05, 
-        zmax=15 if asset_type in ["Bond", "Bond Spread"] else 0.05,
-        text=events_text.values,
+        zmin=-1, zmax=1,             # Fixes the scale for standardized rows
         texttemplate="%{text}",
-        colorbar=dict(title=val_suffix if val_suffix else "Return", tickformat=y_format),
-        xgap=1, ygap=1
-    ), row=2, col=1)
+        xgap=1, ygap=1,
+        showscale=False
+    ))
 
-    # 4. Layout
     fig.update_layout(
-        title=f"Event Analysis: T-{max_d} to T+{max_d}",
+        title=f"Event Analysis: T-{max_d} to T+{max_d} ({asset_type})",
+        xaxis_title="Relative Days from Event",
         template="plotly_white",
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(color="black"),
-        height=500 + (len(event_data) * 20),
-        yaxis=dict(autorange='reversed'), 
-        yaxis2=dict(autorange='reversed') 
+        height=400 + (len(final_df) * 25),
+        yaxis=dict(autorange='reversed', type='category')
     )
 
     return fig
