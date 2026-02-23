@@ -132,7 +132,7 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     
     fig1 = go.Figure()
     fig1.add_trace(go.Scatter(
-        x = working.index,
+        x = working["Date"],
         y = working["beta"],
         mode = "lines",
         name = "Rolling Beta"
@@ -150,7 +150,7 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     )
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
-        x = working.index,
+        x = working["Date"],
         y = working["r-squared"],
         mode = "lines",
         name = "Rolling R-squared"
@@ -168,7 +168,7 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
     )
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
-        x = working.index,
+        x = working["Date"],
         y = working["p-value"],
         mode = "lines",
         name = "Rolling p-value"
@@ -363,6 +363,15 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
 
                     inf_x = [-100000, 100000]
                     inf_y = [m_sub * x + c_sub for x in inf_x]
+
+                    fig.add_trace(go.Scatter(
+                        x=sub_df["Working_x"],
+                        y=sub_df["Working_y"],
+                        mode='markers',
+                        name=f"{name} Dots",
+                        marker=dict(color=color, size=7, opacity=0.8),
+                        showlegend=False # Keep legend clean
+                    ))
                     
                     fig.add_trace(go.Scatter(
                         x=inf_x, 
