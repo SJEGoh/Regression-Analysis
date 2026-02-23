@@ -352,7 +352,6 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
             for i, (name, (start, end)) in enumerate(labels.items()):
                 mask = (df["Date"] >= pd.to_datetime(start)) & (df["Date"] <= pd.to_datetime(end))
                 sub_df = df[mask]
-                
                 if len(sub_df) > 2:
                     color = colors[i % len(colors)]
                     X_sub = sm.add_constant(sub_df["Working_x"])
@@ -801,9 +800,7 @@ def get_fred_bond_data(ticker_input):
     try:
         # 1. Fetch data
         df = web.DataReader(symbol, 'fred', start='2015-01-01')
-        
-        # DEBUG: Check if data actually arrived before cleaning
-        print(f"Rows fetched for {symbol}: {len(df)}")
+    
         
         if df.empty:
             return pd.DataFrame()
@@ -880,7 +877,6 @@ def main():
     arg_3y = get_stooq_macro('5YCAP.B')
     spy = get_stooq_macro('SPY.US')
 
-    print(get_spread("2s5s10s"))
 
 
 if __name__ == "__main__":

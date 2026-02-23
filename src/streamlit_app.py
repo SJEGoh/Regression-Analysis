@@ -54,57 +54,33 @@ def main():
             )
 
         with c3:
-            if st.button("Clear All Events"):
-                # 1. FIX: Use the correct variable name
-                if "event_data" in st.session_state:
-                    del st.session_state.event_data
-
-                for key in list(st.session_state.keys()):
-                    if any(key.startswith(prefix) for prefix in ["label", "start", "end"]):
-                        del st.session_state[key]
+            c1, c2 = st.columns([0.6, 0.4])
+            with c1:
+                n_events = st.number_input("Number of Events",
+                                        value = 1, step = 1)
+            with c2:
+                st.text("Date Format: YYYY-MM-DD \n(e.g. 2025-12-31)")
+            c1, c2, c3 = st.columns([0.6, 0.2, 0.2])
+            final_event_data = {}
+            for i in range(n_events):
+                label = c1.text_input("Enter Event",
+                                      value = "", key = f"Event {i}")
+                start_date = c2.text_input("Enter Start Date",
+                                           value = "", key = f"Start {i}")
+                end_date = c3.text_input("Enter End Date",
+                                         value = "", key = f"End {i}")
+            
+                if label and start_date and end_date:
+                    try:
+                        start_dt = pd.to_datetime(start_date, format='%Y-%m-%d')
+                        end_dt = pd.to_datetime(end_date, format='%Y-%m-%d')
                         
-                st.rerun()
-            if "event_data" not in st.session_state:
-                st.session_state.event_data = {}
-
-            # 2. Define the update function
-            def update_event(index):
-                # Pull current values directly from the widget keys
-                label = st.session_state[f"label{index}"]
-                start = st.session_state[f"start{index}"]
-                end = st.session_state[f"end{index}"]
-                
-                if label.strip():
-                    st.session_state.event_data[index] = {
-                        "label": label,
-                        "data": (start, end)
-                    }
-                else:
-                    # Cleanup if label is deleted
-                    st.session_state.event_data.pop(index, None)
-
-            # 3. Determine how many rows to show
-            completed_indices = sorted(st.session_state.event_data.keys())
-            num_to_show = max(1, len(completed_indices) + 1)
-
-            # 4. Render the Rows
-            for i in range(num_to_show):
-                with st.container():
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    
-                    # Load existing data for the widget defaults
-                    existing = st.session_state.event_data.get(i, {"label": "", "data": (datetime.datetime.today(), datetime.datetime.today())})
-                    
-                    # We use on_change to trigger the save logic only when the user finishes typing
-                    col1.text_input(f"Label {i+1}", key=f"label{i}", value=existing["label"], on_change=update_event, args=(i,))
-                    col2.date_input(f"Start {i+1}", key=f"start{i}", value=existing["data"][0], on_change=update_event, args=(i,))
-                    col3.date_input(f"Days {i+1}", key=f"end{i}", value=existing["data"][1], on_change=update_event, args=(i,))
-
-            # 5. Final Data Construction
-            final_event_data = {
-                v["label"]: v["data"] 
-                for v in st.session_state.event_data.values()
-            }
+                        # Calculate the window 'd' (days from target to edge)
+                        # Your heatmap logic uses (target_date, d) where the window is target +/- d
+                        
+                        final_event_data[label] = (start_dt, end_dt)
+                    except Exception as e:
+                        st.error(f"Error parsing row {i+1}: {e}")
         try:
             data_x = get_data(asset_ticker_x.upper(), asset_type_x)
             data_y = get_data(asset_ticker_y.upper(), asset_type_y)
