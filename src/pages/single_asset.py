@@ -55,6 +55,7 @@ def main():
             start_date = pd.to_datetime(date, dayfirst = True)
             final_event_data[label] = (start_date, days)
         except:
+            st.write(f"Could not parse date: {date}")
             continue
 
 
