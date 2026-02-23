@@ -1,11 +1,13 @@
 import streamlit as st
-from helper import get_data, get_figs, get_heatmap, get_annual_series, get_monthly_series
+from helper import get_data, get_figs, get_heatmap, get_annual_series, get_monthly_series, draw_custom_header
 import pandas as pd
 import datetime
 
+# 3. Run the navigation
 
 
 def main():
+    draw_custom_header()
     st.set_page_config(page_title="Regression Analysis", layout="wide")
     with st.expander("Query Options", expanded = True):
         c1, c2, c3 = st.columns([0.2, 0.2, 0.6])

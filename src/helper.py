@@ -872,6 +872,23 @@ def get_spread(ticker_input):
         return compiled[["Date", "Close"]]
     
     return
+
+def draw_custom_header():
+    logo_col, nav1, nav2, _ = st.columns([0.1, 0.25, 0.25, 0.4])
+
+    with logo_col:
+        # 2. Insert the logo (Local path or URL)
+        # Use a small width to keep it aligned with the buttons
+        st.image("assets/NUSSIF_logo.jpeg", width=90)
+    with nav1:
+        st.write("")
+        if st.button("📊 ANALYSIS", use_container_width=True):
+            st.switch_page("streamlit_app.py")
+    with nav2:
+        st.write("")
+        if st.button("📈 REGRESSIONS", use_container_width=True):
+            st.switch_page("pages/single_asset.py")
+    st.divider()
     
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')

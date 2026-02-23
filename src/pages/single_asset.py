@@ -10,9 +10,10 @@ import pandas as pd
 path_root = Path(__file__).parents[1]
 sys.path.append(str(path_root))
 
-from helper import get_data, multiple_heatmap, multiple_line_plot
+from helper import get_data, multiple_heatmap, multiple_line_plot, draw_custom_header
 
 def main():
+    draw_custom_header()
     st.title("Seasonality Analysis")
     st.set_page_config(page_title="Seasonality Analysis", layout="wide")
     # heatmap + T-10 - T+10 time series
