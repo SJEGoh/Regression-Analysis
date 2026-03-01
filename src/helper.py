@@ -521,10 +521,10 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
             curr = temp[temp["Year"] == y].copy()
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=f"{y}"))
-        
-        curr = temp[temp["Year"] == date.today().year].copy()
-        fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
-        
+        if not curr.empty:
+            curr = temp[temp["Year"] == date.today().year].copy()
+            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
+            
         y_axis_config = dict(title='Yield %' if val_suffix == "bps" else 'Price', tickformat='.2f')
 
     fig.update_layout(
