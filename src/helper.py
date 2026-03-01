@@ -435,6 +435,7 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
     return fig
 
 def get_annual_series(ticker_price, asset_type = "Equity"):
+    # annotate with 10 year average returns
     if asset_type in ["Bond", "Bond Spread"]:
         y_title = "Cumulative Change (bps)"
         y_format = ".1f"  # Shows 5.0 instead of 500%
@@ -445,7 +446,6 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
         val_suffix = ""
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
-
     fig = go.Figure()
     for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
         curr = temp[temp["Year"] == y].copy() # copy to avoid slice warnings
@@ -462,6 +462,7 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
         ))
     
     curr = temp[temp["Year"] == date.today().year].copy()
+    print(curr)
     y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
     
     fig.add_trace(go.Scatter(
@@ -507,13 +508,13 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
-        
         curr = temp[temp["Year"] == date.today().year].copy()
-        y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
-        fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
-        
+        if not curr.empty:
+            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+            fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
+            
+            
         y_axis_config = dict(title=y_title, tickformat=y_format)
-
     # Logic for Absolute Levels (Yield % vs Price)
     else:
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
@@ -896,10 +897,6 @@ def get_spread(ticker_input):
 def draw_custom_header():
     logo_col, nav1, nav2, _ = st.columns([0.1, 0.25, 0.25, 0.4])
 
-    with logo_col:
-        # 2. Insert the logo (Local path or URL)
-        # Use a small width to keep it aligned with the buttons
-        st.image("assets/NUSSIF_logo.jpeg", width=90)
     with nav1:
         st.write("")
         if st.button("📈 REGRESSION ANALYSIS", use_container_width=True):
