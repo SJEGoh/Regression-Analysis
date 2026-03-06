@@ -11,7 +11,9 @@ import yfinance as yf
 from datetime import datetime, date
 import pandas_datareader.data as web
 import re
-from plotly.subplots import make_subplots
+# TODO
+# Add 10 year annualized returns for series
+# Fix dates for Residuals
 
 # Index mapping
 # Mappings for truncated index names to US-listed ETFs (Polygon Compatible)
@@ -208,7 +210,7 @@ def get_figs(t_price, b_price, labels, ticker_x, ticker_y, window = 20, rolling_
 
     fig4 = go.Figure()
     fig4.add_trace(go.Bar(
-    x=working.index,
+    x=working["Date"],
     y=working['residuals'],
     marker_opacity = 1.0,
     name='Residuals',
@@ -462,7 +464,6 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
         ))
     
     curr = temp[temp["Year"] == date.today().year].copy()
-    print(curr)
     y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
     
     fig.add_trace(go.Scatter(
@@ -471,6 +472,35 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
         mode = "lines",
         name = date.today().year
     ))
+    # --- New Annotation Logic ---
+    # Calculate time delta in years for the entire dataframe
+    first_date = ticker_price["Date"].iloc[0]
+    last_date = ticker_price["Date"].iloc[-1]
+    num_years = (last_date - first_date).days / 365.25
+    
+    first_price = ticker_price["Close"].iloc[0]
+    last_price = ticker_price["Close"].iloc[-1]
+    
+    if val_suffix == "bps":
+        # Average annual bps change
+        ann_ret = ((last_price - first_price) * 100) / num_years
+        ann_text = f"Avg Annual Change: {ann_ret:.1f} bps"
+    else:
+        # CAGR (Annualized Return)
+        ann_ret = (last_price / first_price) ** (1 / num_years) - 1
+        ann_text = f"Avg Annualized Return: {ann_ret:.2%}"
+
+    fig.add_annotation(
+        xref="paper", yref="paper",
+        x=0.02, y=0.98,
+        text=ann_text,
+        showarrow=False,
+        font=dict(size=12, color="black"),
+        bgcolor="white",
+        opacity=0.8,
+        align="left"
+    )
+    # -----------------------------
     fig.update_layout(
         title='Annual Returns Overlay',
         xaxis_title='Date',
@@ -489,6 +519,7 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
     return fig
 
+
 def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
         y_title, y_format, val_suffix = "Cumulative Change (bps)", ".1f", "bps"
@@ -498,37 +529,71 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
     temp["Month"] = temp["Date"].dt.month
-    temp = temp[temp["Month"] == date.today().month]
+    
+    current_month = date.today().month
+    temp = temp[temp["Month"] == current_month]
 
     fig = go.Figure()
-    # Logic for Cumulative Changes (Bips vs %)
+
+    # --- Updated Annotation Logic (Simple Monthly Average) ---
+    if not temp.empty:
+        # Calculate the return for each year's instance of this month
+        monthly_stats = []
+        for y in temp["Year"].unique():
+            year_slice = temp[temp["Year"] == y]
+            if len(year_slice) > 1:
+                if val_suffix == "bps":
+                    # Absolute change in bps for that month
+                    change = (year_slice["Close"].iloc[-1] - year_slice["Close"].iloc[0]) * 100
+                else:
+                    # Percentage return for that month
+                    change = (year_slice["Close"].iloc[-1] / year_slice["Close"].iloc[0]) - 1
+                monthly_stats.append(change)
+        
+        if monthly_stats:
+            avg_monthly = sum(monthly_stats) / len(monthly_stats)
+            ann_text = f"Avg Monthly Change: {avg_monthly:.1f} bps" if val_suffix == "bps" else f"Avg Monthly Return: {avg_monthly:.2%}"
+
+            fig.add_annotation(
+                xref="paper", yref="paper",
+                x=0.02, y=0.98,
+                text=ann_text,
+                showarrow=False,
+                font=dict(size=12, color="black"),
+                bgcolor="white",
+                opacity=0.8,
+                align="left"
+            )
+    # ---------------------------------------------------------
+
     if mode == "Difference":
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
+        
         curr = temp[temp["Year"] == date.today().year].copy()
         if not curr.empty:
             y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
             
-            
         y_axis_config = dict(title=y_title, tickformat=y_format)
-    # Logic for Absolute Levels (Yield % vs Price)
+        
     else:
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=f"{y}"))
+        
+        curr = temp[temp["Year"] == date.today().year].copy()
         if not curr.empty:
-            curr = temp[temp["Year"] == date.today().year].copy()
             fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
             
         y_axis_config = dict(title='Yield %' if val_suffix == "bps" else 'Price', tickformat='.2f')
 
     fig.update_layout(
-        title=f'Monthly Overlay (Month {date.today().month}) - {mode}',
+        title=f'Monthly Overlay (Month {current_month}) - {mode}',
         xaxis_title='Date',
         yaxis=y_axis_config,
         template="plotly_white",
@@ -896,7 +961,8 @@ def get_spread(ticker_input):
 
 def draw_custom_header():
     logo_col, nav1, nav2, _ = st.columns([0.1, 0.25, 0.25, 0.4])
-
+    with logo_col:
+        
     with nav1:
         st.write("")
         if st.button("📈 REGRESSION ANALYSIS", use_container_width=True):
