@@ -518,6 +518,11 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
 
     return fig
+The reason the bps calculation was mismatching is that your Heatmap uses x.diff().sum() (summing the daily changes) while your Monthly Series was using (Last - First) (simple subtraction). In a perfect world, these are the same, but in real financial data with NaNs or Holidays, they diverge because sum() skips missing values while Last - First "swallows" the gap.
+
+To fix this and ensure the Series Annotation and Heatmap are identical, we need to use the exact same logic: summing the pct_change column (which, for your bonds, contains the daily point change).
+
+Python
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -538,7 +543,7 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
 
     fig = go.Figure()
 
-    # --- Synced Annotation Logic (Matches Heatmap) ---
+    # --- FIXED: Synced Annotation Logic ---
     if not temp.empty:
         monthly_stats = []
         for y in temp["Year"].unique():
@@ -546,12 +551,11 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
             
             if not year_slice.empty:
                 if val_suffix == "bps":
-                    # Matches Heatmap: Sum of differences * 100
-                    # Using the Close price diff to be direct, or pct_change if it holds the bps move
-                    change = (year_slice["Close"].iloc[-1] - year_slice["Close"].iloc[0]) * 100
+                    # FIXED: Summing the daily changes to match Heatmap's x.sum() logic
+                    # This ensures NaNs are handled identically in both charts
+                    change = year_slice["pct_change"].sum() * 100
                 else:
-                    # Matches Heatmap: Compounded daily returns
-                    # This accounts for gaps/overnights that (Last/First)-1 might miss
+                    # Compounded daily returns for Equities
                     change = (1 + year_slice["pct_change"]).prod() - 1
                 
                 monthly_stats.append(change)
@@ -571,34 +575,49 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
                 borderwidth=1,
                 align="left"
             )
-    # -------------------------------------------------
 
+    # --- Plotting Logic ---
     if mode == "Difference":
-        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+        # Handle historical years (-3 to -1)
+        years_list = temp["Year"].unique()
+        # Ensure we have enough years to slice
+        past_years = [y for y in years_list if y < date.today().year][-2:] 
+        
+        for i, y in enumerate(past_years):
             curr = temp[temp["Year"] == y].copy()
-            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            # Shift dates to current year for overlay alignment
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = date.today().year - y)
             
-            # Keep plotting logic consistent with your original UI
-            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+            # Logic for Y-axis values
+            if val_suffix == "bps":
+                y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100
+            else:
+                y_vals = curr["Close"] / curr.iloc[0]["Close"] - 1
+                
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
         
-        curr = temp[temp["Year"] == date.today().year].copy()
-        if not curr.empty:
-            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
-            fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
+        # Handle current year
+        curr_year_df = temp[temp["Year"] == date.today().year].copy()
+        if not curr_year_df.empty:
+            if val_suffix == "bps":
+                y_vals = (curr_year_df["Close"] - curr_year_df.iloc[0]["Close"]) * 100
+            else:
+                y_vals = curr_year_df["Close"] / curr_year_df.iloc[0]["Close"] - 1
+            
+            fig.add_trace(go.Scatter(x=curr_year_df["Date"], y=y_vals, mode="lines", 
+                                     name=str(date.today().year), line=dict(width=3)))
             
         y_axis_config = dict(title=y_title, tickformat=y_format)
         
     else:
-        # Absolute levels logic remains unchanged
-        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
+        # Absolute Levels Logic (Yield % or Price)
+        years_to_plot = list(temp["Year"].unique()[-3:])
+        for y in years_to_plot:
             curr = temp[temp["Year"] == y].copy()
-            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
-            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=f"{y}"))
-        
-        curr = temp[temp["Year"] == date.today().year].copy()
-        if not curr.empty:
-            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
+            if y != date.today().year:
+                curr["Date"] = curr["Date"] + pd.DateOffset(years = date.today().year - y)
+            
+            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=str(y)))
             
         y_axis_config = dict(title='Yield %' if val_suffix == "bps" else 'Price', tickformat='.2f')
 
