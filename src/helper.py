@@ -519,6 +519,9 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
     return fig
 
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import date
 
 def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
@@ -535,19 +538,22 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
 
     fig = go.Figure()
 
-    # --- Updated Annotation Logic (Simple Monthly Average) ---
+    # --- Synced Annotation Logic (Matches Heatmap) ---
     if not temp.empty:
-        # Calculate the return for each year's instance of this month
         monthly_stats = []
         for y in temp["Year"].unique():
             year_slice = temp[temp["Year"] == y]
-            if len(year_slice) > 1:
+            
+            if not year_slice.empty:
                 if val_suffix == "bps":
-                    # Absolute change in bps for that month
+                    # Matches Heatmap: Sum of differences * 100
+                    # Using the Close price diff to be direct, or pct_change if it holds the bps move
                     change = (year_slice["Close"].iloc[-1] - year_slice["Close"].iloc[0]) * 100
                 else:
-                    # Percentage return for that month
-                    change = (year_slice["Close"].iloc[-1] / year_slice["Close"].iloc[0]) - 1
+                    # Matches Heatmap: Compounded daily returns
+                    # This accounts for gaps/overnights that (Last/First)-1 might miss
+                    change = (1 + year_slice["pct_change"]).prod() - 1
+                
                 monthly_stats.append(change)
         
         if monthly_stats:
@@ -559,17 +565,20 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
                 x=0.02, y=0.98,
                 text=ann_text,
                 showarrow=False,
-                font=dict(size=12, color="black"),
-                bgcolor="white",
-                opacity=0.8,
+                font=dict(size=12, color="black", family="Arial"),
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="black",
+                borderwidth=1,
                 align="left"
             )
-    # ---------------------------------------------------------
+    # -------------------------------------------------
 
     if mode == "Difference":
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            
+            # Keep plotting logic consistent with your original UI
             y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
         
@@ -581,6 +590,7 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
         y_axis_config = dict(title=y_title, tickformat=y_format)
         
     else:
+        # Absolute levels logic remains unchanged
         for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
             curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
