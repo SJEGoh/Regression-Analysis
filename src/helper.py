@@ -593,6 +593,10 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     # ORIGINAL LAYOUT LOGIC (RESTORED)
     fig.update_layout(
         title=f'Monthly Overlay (Month {date.today().month}) - {mode}',
+        xaxis=dict(
+            title='Date',
+            tickformat='%b %d'
+        ),
         xaxis_title='Date',
         yaxis=y_axis_config,
         template="plotly_white",
