@@ -254,7 +254,7 @@ def get_heatmap(df, asset_type="Equity", mode="Differences"):
     if is_diff:
         if is_bond:
             monthly_df = temp.groupby(["Year", "Month"])["pct_change"].apply(
-                lambda x: x.diff().sum() * 100
+                lambda x: (x.iloc[-1] - x.iloc[0]) * 100
             ).reset_index()
             val_fmt = ".1f"
         else:
