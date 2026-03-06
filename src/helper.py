@@ -518,8 +518,9 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
 
     return fig
-
-
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import date
 
 def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
@@ -530,27 +531,22 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     temp = ticker_price.copy()
     temp["Year"] = temp["Date"].dt.year
     temp["Month"] = temp["Date"].dt.month
-    
-    current_month = date.today().month
-    temp = temp[temp["Month"] == current_month]
+    temp = temp[temp["Month"] == date.today().month]
 
     fig = go.Figure()
 
-    # --- ANNOTATION: FORCED SYNC WITH HEATMAP ---
+    # --- FIXED ANNOTATION LOGIC (ONLY THIS PART CHANGED) ---
     if not temp.empty:
         monthly_stats = []
         for y in temp["Year"].unique():
             year_slice = temp[temp["Year"] == y]
-            
             if not year_slice.empty:
                 if val_suffix == "bps":
-                    # MATCHES HEATMAP: (pct_change_last - pct_change_first) * 100
-                    # Note: We use the pct_change column here to match your heatmap logic
+                    # Matches Heatmap: (pct_change_last - pct_change_first) * 100
                     change = (year_slice["pct_change"].iloc[-1] - year_slice["pct_change"].iloc[0]) * 100
                 else:
-                    # MATCHES HEATMAP: Compounded daily returns
+                    # Matches Heatmap: (1 + pct_change).prod() - 1
                     change = (1 + year_slice["pct_change"]).prod() - 1
-                
                 monthly_stats.append(change)
         
         if monthly_stats:
@@ -563,45 +559,46 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
                 text=ann_text,
                 showarrow=False,
                 font=dict(size=12, color="black"),
-                bgcolor="rgba(255, 255, 255, 0.8)",
-                bordercolor="black",
-                borderwidth=1,
+                bgcolor="white",
+                opacity=0.8,
                 align="left"
             )
+    # -------------------------------------------------------
 
-    # --- PLOTTING: KEEP ORIGINAL VISUALS ---
+    # ORIGINAL PLOTTING LOGIC (RESTORED)
     if mode == "Difference":
-        # Get last 2 years + current year
-        years_list = temp["Year"].unique()
-        past_years = [y for y in years_list if y < date.today().year][-2:] 
-        
-        for y in past_years:
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
-            curr["Date"] = curr["Date"] + pd.DateOffset(years = date.today().year - y)
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
             y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
             fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=f"{y}"))
-        
-        curr_yr = temp[temp["Year"] == date.today().year].copy()
-        if not curr_yr.empty:
-            y_vals = (curr_yr["Close"] - curr_yr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr_yr["Close"]/curr_yr.iloc[0]["Close"] - 1
-            fig.add_trace(go.Scatter(x=curr_yr["Date"], y=y_vals, mode="lines", name=date.today().year, line=dict(width=3)))
+        curr = temp[temp["Year"] == date.today().year].copy()
+        if not curr.empty:
+            y_vals = (curr["Close"] - curr.iloc[0]["Close"]) * 100 if val_suffix == "bps" else curr["Close"]/curr.iloc[0]["Close"] - 1
+            fig.add_trace(go.Scatter(x=curr["Date"], y=y_vals, mode="lines", name=date.today().year))
             
         y_axis_config = dict(title=y_title, tickformat=y_format)
+    
     else:
-        # Absolute levels logic
-        years_to_plot = list(temp["Year"].unique()[-3:])
-        for y in years_to_plot:
+        for i, y in enumerate(x := temp["Year"].unique()[-3:-1]):
             curr = temp[temp["Year"] == y].copy()
-            if y != date.today().year:
-                curr["Date"] = curr["Date"] + pd.DateOffset(years = date.today().year - y)
-            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=str(y)))
+            curr["Date"] = curr["Date"] + pd.DateOffset(years = len(x) - i)
+            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=f"{y}"))
+        if not curr.empty:
+            curr = temp[temp["Year"] == date.today().year].copy()
+            fig.add_trace(go.Scatter(x=curr["Date"], y=curr["Close"], mode="lines", name=date.today().year))
+            
         y_axis_config = dict(title='Yield %' if val_suffix == "bps" else 'Price', tickformat='.2f')
 
+    # ORIGINAL LAYOUT LOGIC (RESTORED)
     fig.update_layout(
-        title=f'Monthly Overlay (Month {current_month}) - {mode}',
+        title=f'Monthly Overlay (Month {date.today().month}) - {mode}',
         xaxis_title='Date',
         yaxis=y_axis_config,
         template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="black"),
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
