@@ -503,7 +503,10 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
     # -----------------------------
     fig.update_layout(
         title='Annual Returns Overlay',
-        xaxis_title='Date',
+        xaxis = dict(
+            title = "Date",
+            tickformat = "%b"
+        ),
         yaxis=dict(
             title=y_title,
             tickformat=y_format
@@ -518,9 +521,6 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
 
     return fig
-import pandas as pd
-import plotly.graph_objects as go
-from datetime import date
 
 def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
@@ -597,7 +597,6 @@ def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
             title='Date',
             tickformat='%b %d'
         ),
-        xaxis_title='Date',
         yaxis=y_axis_config,
         template="plotly_white",
         paper_bgcolor="white",
