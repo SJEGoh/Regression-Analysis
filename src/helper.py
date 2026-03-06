@@ -518,15 +518,6 @@ def get_annual_series(ticker_price, asset_type = "Equity"):
 
 
     return fig
-The reason the bps calculation was mismatching is that your Heatmap uses x.diff().sum() (summing the daily changes) while your Monthly Series was using (Last - First) (simple subtraction). In a perfect world, these are the same, but in real financial data with NaNs or Holidays, they diverge because sum() skips missing values while Last - First "swallows" the gap.
-
-To fix this and ensure the Series Annotation and Heatmap are identical, we need to use the exact same logic: summing the pct_change column (which, for your bonds, contains the daily point change).
-
-Python
-
-import pandas as pd
-import plotly.graph_objects as go
-from datetime import date
 
 def get_monthly_series(ticker_price, asset_type="Equity", mode="Difference"):
     if asset_type in ["Bond", "Bond Spread"]:
