@@ -962,7 +962,7 @@ def get_spread(ticker_input):
 def draw_custom_header():
     logo_col, nav1, nav2, _ = st.columns([0.1, 0.25, 0.25, 0.4])
     with logo_col:
-        
+        st.image("assets/NUSSIF_logo.jpeg", width=90)
     with nav1:
         st.write("")
         if st.button("📈 REGRESSION ANALYSIS", use_container_width=True):
