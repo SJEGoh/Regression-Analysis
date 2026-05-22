@@ -51,14 +51,26 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
     if ticker in INDEXES.keys():
         st.write(f"Mapping {ticker} to {INDEXES[ticker]}.")
         ticker = INDEXES[ticker]
-    aggs = client.get_aggs(
-        ticker=ticker, 
-        multiplier=1, 
-        timespan=timespan, 
-        from_=frm,
-        to = to,
-        adjusted = True
-    )
+    try:
+        aggs = client.get_aggs(
+            ticker=ticker, 
+            multiplier=1, 
+            timespan=timespan, 
+            from_=frm,
+            to = to,
+            adjusted = True
+        )
+    except:
+        aggs = yf.download(ticker, start=frm, end=to)
+        if isinstance(aggs.columns, pd.MultiIndex):
+            aggs.columns = aggs.columns.get_level_values(0) 
+        aggs = aggs.reset_index()
+    
+        # Standardize the 'Date' column name (yfinance sometimes uses 'Date' or 'index')
+        if 'Date' not in aggs.columns:
+            aggs.rename(columns={aggs.columns[0]: 'Date'}, inplace=True)
+            
+        return aggs[["Date", "Close"]]
 
     df = pd.DataFrame(aggs)[["close", "timestamp"]]
     df["Date"] = pd.to_datetime(df["timestamp"], unit = "ms")
