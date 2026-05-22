@@ -60,6 +60,7 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
             to = to,
             adjusted = True
         )
+        print(aggs)
     except:
         st.write("Hello")
         aggs = yf.download(ticker, start=frm, end=to)
