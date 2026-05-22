@@ -61,6 +61,7 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
             adjusted = True
         )
     except:
+        print("Hello")
         aggs = yf.download(ticker, start=frm, end=to)
         if isinstance(aggs.columns, pd.MultiIndex):
             aggs.columns = aggs.columns.get_level_values(0) 
