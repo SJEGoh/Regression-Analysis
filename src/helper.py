@@ -51,17 +51,17 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
     if ticker in INDEXES.keys():
         st.write(f"Mapping {ticker} to {INDEXES[ticker]}.")
         ticker = INDEXES[ticker]
-    try:
-        aggs = client.get_aggs(
-            ticker=ticker, 
-            multiplier=1, 
-            timespan=timespan, 
-            from_=frm,
-            to = to,
-            adjusted = True
-        )
-        print(aggs)
-    except:
+
+    aggs = client.get_aggs(
+        ticker=ticker, 
+        multiplier=1, 
+        timespan=timespan, 
+        from_=frm,
+        to = to,
+        adjusted = True
+    )
+        
+    if aggs.empty:
         st.write("Hello")
         aggs = yf.download(ticker, start=frm, end=to)
         if isinstance(aggs.columns, pd.MultiIndex):
