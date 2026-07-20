@@ -60,9 +60,7 @@ def get_polygon_data(ticker, frm = "2015-01-01", to = date.today(), timespan = "
         to = to,
         adjusted = True
     )
-    st.write(aggs)
     if not aggs:
-        st.write("Hello")
         aggs = yf.download(ticker, start=frm, end=to)
         if isinstance(aggs.columns, pd.MultiIndex):
             aggs.columns = aggs.columns.get_level_values(0) 
@@ -443,11 +441,10 @@ def get_regression_plot(ticker_price, bench_price, ols_data, ticker_x, ticker_y,
         plot_bgcolor="white",     # Force the plotting area to white
         font=dict(color="black"), # Ensure text isn't white-on-white
         margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, tracegroupgap = 20),
         xaxis=dict(range=[x_min - pad_x, x_max + pad_x], constrain='domain'), 
         yaxis=dict(range=[y_min - pad_y, y_max + pad_y], constrain='domain')
     )
-
     return fig
 
 def get_annual_series(ticker_price, asset_type = "Equity"):
@@ -988,7 +985,7 @@ def draw_custom_header():
         if st.button("📊 SEASONALITY ANALYSIS", use_container_width=True):
             st.switch_page("pages/single_asset.py")
     st.divider()
-    
+
 def main():
     arg_3y = get_stooq_macro('5YCAP.B')
     spy = get_stooq_macro('SPY.US')
